@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-streamflow_payroll}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - streamflow-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: streamflow-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-streamflow_payroll}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - SOLANA_CLUSTER=${SOLANA_CLUSTER:-devnet}
+      - STREAMFLOW_API_BASE=${STREAMFLOW_API_BASE}
+      - STREAMFLOW_WEBHOOK_SECRET=${STREAMFLOW_WEBHOOK_SECRET}
+      - APP_BASE_URL=${APP_BASE_URL:-http://localhost:3000}
+      - ENCRYPTION_KEY_32B=${ENCRYPTION_KEY_32B}
+      - STREAMFLOW_ENABLED=${STREAMFLOW_ENABLED:-false}
+      - WALLET_ALLOW_MOCK=${WALLET_ALLOW_MOCK:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - streamflow-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: streamflow-worker
+    restart: unless-stopped
+    command: pnpm worker:reconcile
+    ports:
+      - "${WORKER_HEALTH_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-streamflow_payroll}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - SOLANA_CLUSTER=${SOLANA_CLUSTER:-devnet}
+      - STREAMFLOW_API_BASE=${STREAMFLOW_API_BASE}
+      - STREAMFLOW_WEBHOOK_SECRET=${STREAMFLOW_WEBHOOK_SECRET}
+      - APP_BASE_URL=${APP_BASE_URL:-http://localhost:3000}
+      - ENCRYPTION_KEY_32B=${ENCRYPTION_KEY_32B}
+      - STREAMFLOW_ENABLED=${STREAMFLOW_ENABLED:-false}
+      - WORKER_HEALTH_PORT=${WORKER_HEALTH_PORT:-3001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health/worker', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - streamflow-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  streamflow-network:
+    driver: bridge
+

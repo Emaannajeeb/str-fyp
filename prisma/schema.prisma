@@ -1,0 +1,456 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum RateType {
+  SALARY
+  HOURLY
+  MILESTONE
+}
+
+enum Period {
+  MONTHLY
+  WEEKLY
+  BIWEEKLY
+  ONE_TIME
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+  ON_LEAVE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum StreamStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  APPROVAL_REQUEST
+  APPROVAL_RESPONSE
+  APPROVAL_REQUIRED
+  STREAM_CREATED
+  STREAM_UPDATED
+  STREAM_PAUSED
+  ANOMALY
+  CONTRACT_EXPIRING
+  BUDGET_WARNING
+  SYSTEM_ALERT
+  MONTHLY_REPORT_READY
+}
+
+// Models
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  // Relations
+  wallets       Wallet[]
+  userRoles     UserRole[]
+  employees     Employee[]
+  contracts     Contract[]     @relation("OrganizationContracts")
+  approvals     Approval[]
+  streams       Stream[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  budgets       Budget[]
+  departments   Department[]
+  notificationSettings OrganizationNotificationSettings?
+  auditReports  AuditReport[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  // Relations
+  wallets           Wallet[]
+  userRoles         UserRole[]
+  employees         Employee[]
+  approvals         Approval[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  departmentMembers DepartmentMember[]
+  auditReports      AuditReport[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Wallet {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  address        String
+  provider       String // e.g., 'phantom', 'solflare', 'ledger'
+  network        String // e.g., 'mainnet-beta', 'devnet'
+  createdAt      DateTime @default(now())
+  isPrimary      Boolean  @default(false)
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, address])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([address])
+  @@map("wallets")
+}
+
+model Role {
+  id    String @id @default(cuid())
+  key   String @unique
+  label String
+
+  // Relations
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@index([key])
+  @@map("roles")
+}
+
+model Permission {
+  id    String @id @default(cuid())
+  key   String @unique
+  label String
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@index([key])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  // Relations
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  roleId         String
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, roleId])
+  @@index([userId, organizationId])
+  @@index([organizationId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Employee {
+  id             String         @id @default(cuid())
+  organizationId String
+  userId         String? // Optional: employee may not have a user account yet
+  displayName    String
+  status         EmployeeStatus @default(ACTIVE)
+  startDate      DateTime
+  endDate        DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contracts    Contract[]
+  streams      Stream[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@map("employees")
+}
+
+model Contract {
+  id              String    @id @default(cuid())
+  employeeId      String
+  organizationId  String // Denormalized for easier queries
+  tokenMint       String
+  tokenSymbol     String
+  rateType        RateType
+  amountPerPeriod Decimal   @db.Decimal(20, 8) // Supports large token amounts with 8 decimals
+  period          Period
+  startDate       DateTime
+  endDate         DateTime?
+  notes           String?   @db.Text
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  onchainTx       String? // Transaction signature
+  @@index([onchainTx])
+
+  // Relations
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  organization Organization @relation("OrganizationContracts", fields: [organizationId], references: [id], onDelete: Cascade)
+  streams      Stream[]
+
+  @@index([employeeId])
+  @@index([organizationId])
+  @@index([active])
+  @@index([startDate])
+  @@map("contracts")
+}
+
+model Approval {
+  id             String         @id @default(cuid())
+  organizationId String
+  subjectType    String // e.g., 'CONTRACT', 'STREAM', 'BUDGET'
+  subjectId      String // ID of the subject entity
+  step           Int            @default(1)
+  status         ApprovalStatus @default(PENDING)
+  approverId     String?
+  approvedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  approver     User?        @relation(fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, subjectType, subjectId])
+  @@index([status])
+  @@index([approverId])
+  @@map("approvals")
+}
+
+model Stream {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  employeeId         String
+  contractId         String
+  tokenMint          String
+  tokenSymbol        String
+  totalAmount        Decimal      @db.Decimal(20, 8)
+  startTime          DateTime
+  endTime            DateTime
+  cliffTime          DateTime?
+  streamflowStreamId String?      @unique // Streamflow API stream ID
+  onchainTx          String? // On-chain transaction signature
+  status             StreamStatus @default(PENDING)
+  lastSyncedAt       DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([contractId])
+  @@index([status])
+  @@index([streamflowStreamId])
+  @@index([onchainTx])
+  @@map("streams")
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  actorId        String? // User who performed the action
+  action         String // e.g., 'CREATE', 'UPDATE', 'DELETE', 'APPROVE'
+  entity         String // e.g., 'CONTRACT', 'STREAM', 'EMPLOYEE'
+  entityId       String
+  before         Json? // Previous state
+  after          Json? // New state
+  hash           String? // Hash of the log entry for integrity
+  createdAt      DateTime @default(now())
+  ip             String?
+  userAgent      String?
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  type           NotificationType
+  payload        Json
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@index([userId, readAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+model Budget {
+  id               String   @id @default(cuid())
+  organizationId   String
+  name             String
+  tokenMint        String
+  tokenSymbol      String
+  capAmount        Decimal  @db.Decimal(20, 8)
+  currentCommitted Decimal  @default(0) @db.Decimal(20, 8)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departmentBudgets DepartmentBudget[]
+
+  @@index([organizationId])
+  @@map("budgets")
+}
+
+model Department {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members           DepartmentMember[]
+  departmentBudgets DepartmentBudget[]
+
+  @@index([organizationId])
+  @@map("departments")
+}
+
+model DepartmentMember {
+  id           String   @id @default(cuid())
+  departmentId String
+  userId       String
+  createdAt    DateTime @default(now())
+
+  // Relations
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, userId])
+  @@index([departmentId])
+  @@index([userId])
+  @@map("department_members")
+}
+
+model DepartmentBudget {
+  id           String @id @default(cuid())
+  departmentId String
+  budgetId     String
+
+  // Relations
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  budget     Budget     @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, budgetId])
+  @@index([departmentId])
+  @@index([budgetId])
+  @@map("department_budgets")
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  eventId    String    @unique // Streamflow event ID for deduplication
+  eventType  String // STREAM_CREATED, STREAM_PAUSED, etc.
+  processed  Boolean   @default(false)
+  payload    Json // Full webhook payload
+  createdAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([eventId])
+  @@index([eventType])
+  @@index([processed])
+  @@map("webhook_events")
+}
+
+model OrganizationNotificationSettings {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  slackWebhookUrl String? // Slack incoming webhook URL
+  emailRecipients Json?   // Array of email addresses: ["finance@org.com", "audit@org.com"]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_notification_settings")
+}
+
+model AuditReport {
+  id             String   @id @default(cuid())
+  organizationId String
+  reportType     String   // 'MONTHLY', 'CUSTOM'
+  periodStart    DateTime
+  periodEnd      DateTime
+  fileName       String   // Generated filename
+  filePath       String   // Path to stored PDF file
+  fileSize       Int      // Size in bytes
+  hash           String   // SHA256 hash of the PDF file
+  createdAt      DateTime @default(now())
+  createdBy      String?  // User ID who generated the report
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User?        @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([reportType])
+  @@map("audit_reports")
+}
