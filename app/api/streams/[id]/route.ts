@@ -8,6 +8,25 @@ import { db } from '@/server/db';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { createStreamflowClient } from '@/server/streamflow';
 import { env } from '@/lib/env';
+import { StreamStatus } from '@prisma/client';
+
+function toPrismaStreamStatus(value: unknown): StreamStatus {
+  if (typeof value !== 'string') return StreamStatus.PENDING;
+  switch (value.toUpperCase()) {
+    case 'PENDING':
+      return StreamStatus.PENDING;
+    case 'ACTIVE':
+      return StreamStatus.ACTIVE;
+    case 'PAUSED':
+      return StreamStatus.PAUSED;
+    case 'COMPLETED':
+      return StreamStatus.COMPLETED;
+    case 'CANCELLED':
+      return StreamStatus.CANCELLED;
+    default:
+      return StreamStatus.PENDING;
+  }
+}
 
 async function getStreamHandler(
   request: NextRequest,
@@ -18,10 +37,7 @@ async function getStreamHandler(
     const streamId = context?.params?.id;
 
     if (!streamId) {
-      return NextResponse.json(
-        { error: 'Stream ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Stream ID is required' }, { status: 400 });
     }
 
     // Get stream from database
@@ -35,6 +51,7 @@ async function getStreamHandler(
           select: {
             id: true,
             displayName: true,
+            userId: true,
           },
         },
         contract: {
@@ -50,10 +67,7 @@ async function getStreamHandler(
     });
 
     if (!stream) {
-      return NextResponse.json(
-        { error: 'Stream not found or access denied' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Stream not found or access denied' }, { status: 404 });
     }
 
     // If stream has Streamflow ID, sync with Streamflow API via polling
@@ -72,7 +86,7 @@ async function getStreamHandler(
           await db.stream.update({
             where: { id: streamId },
             data: {
-              status: streamflowDetails.status as any,
+              status: toPrismaStreamStatus(streamflowDetails.status),
               lastSyncedAt: new Date(),
             },
           });
@@ -83,6 +97,9 @@ async function getStreamHandler(
       }
     }
 
+    const employee = stream.employee as { id: string; displayName: string; userId: string | null };
+    const isRecipient = employee.userId === session.userId;
+
     return NextResponse.json({
       success: true,
       stream: {
@@ -90,7 +107,7 @@ async function getStreamHandler(
         streamflowStreamId: stream.streamflowStreamId,
         onchainTx: stream.onchainTx,
         status: stream.status,
-        employee: stream.employee,
+        employee: { id: stream.employee.id, displayName: stream.employee.displayName },
         contract: stream.contract,
         tokenMint: stream.tokenMint,
         tokenSymbol: stream.tokenSymbol,
@@ -99,6 +116,7 @@ async function getStreamHandler(
         endTime: stream.endTime,
         cliffTime: stream.cliffTime,
         lastSyncedAt: stream.lastSyncedAt,
+        isRecipient,
         streamflowDetails: streamflowDetails
           ? {
               availableAmount: streamflowDetails.availableAmount,
@@ -123,4 +141,3 @@ async function getStreamHandler(
 export const GET = withAuthAndRBAC(getStreamHandler, {
   requiredPermissions: ['VIEW_FINANCE_DASHBOARD'], // Anyone with finance view can see streams
 });
-

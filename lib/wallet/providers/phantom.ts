@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import { PublicKey, Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
-import type { WalletAdapter } from "../client";
+import { PublicKey, Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
+import type { WalletAdapter } from '../client';
 
 // Get cluster URL from client-side env (must be prefixed with NEXT_PUBLIC_)
 const getClusterUrl = () => {
-  if (typeof window === "undefined") {
-    return "https://api.devnet.solana.com"; // Default for SSR
+  if (typeof window === 'undefined') {
+    return 'https://api.devnet.solana.com'; // Default for SSR
   }
-  return process.env.NEXT_PUBLIC_SOLANA_CLUSTER_URL || "https://api.devnet.solana.com";
+  return process.env.NEXT_PUBLIC_SOLANA_CLUSTER_URL || 'https://api.devnet.solana.com';
 };
 
 declare global {
@@ -17,8 +17,12 @@ declare global {
       isPhantom?: boolean;
       connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey }>;
       disconnect: () => Promise<void>;
-      signTransaction: (transaction: Transaction | VersionedTransaction) => Promise<Transaction | VersionedTransaction>;
-      signAllTransactions: (transactions: (Transaction | VersionedTransaction)[]) => Promise<(Transaction | VersionedTransaction)[]>;
+      signTransaction: (
+        transaction: Transaction | VersionedTransaction
+      ) => Promise<Transaction | VersionedTransaction>;
+      signAllTransactions: (
+        transactions: (Transaction | VersionedTransaction)[]
+      ) => Promise<(Transaction | VersionedTransaction)[]>;
       signMessage: (message: Uint8Array, display?: string) => Promise<{ signature: Uint8Array }>;
       publicKey?: PublicKey | null;
       isConnected: boolean;
@@ -33,16 +37,16 @@ declare global {
  * Implements WalletAdapter interface and provides Streamflow SDK compatibility
  */
 export class PhantomWalletAdapter implements WalletAdapter {
-  name = "Phantom";
-  providerId = "phantom" as const;
-  icon = "👻";
+  name = 'Phantom';
+  providerId = 'phantom' as const;
+  icon = '👻';
 
   private _publicKey: PublicKey | null = null;
   private _connection: Connection;
-  private _connectedWallet: import("../client").ConnectedWallet | null = null;
+  private _connectedWallet: import('../client').ConnectedWallet | null = null;
 
   constructor() {
-    this._connection = new Connection(getClusterUrl(), "confirmed");
+    this._connection = new Connection(getClusterUrl(), 'confirmed');
   }
 
   get connected(): boolean {
@@ -54,12 +58,12 @@ export class PhantomWalletAdapter implements WalletAdapter {
   }
 
   async isAvailable(): Promise<boolean> {
-    if (typeof window === "undefined") return false;
-    
+    if (typeof window === 'undefined') return false;
+
     // Check for Phantom extension
     const solana = window.solana;
     const isPhantomInstalled = !!solana?.isPhantom;
-    
+
     // Also check if Phantom is being injected (sometimes takes a moment)
     if (!isPhantomInstalled) {
       // Wait a bit for Phantom to inject if it's still loading
@@ -67,25 +71,25 @@ export class PhantomWalletAdapter implements WalletAdapter {
       const solanaAfterWait = window.solana;
       return !!solanaAfterWait?.isPhantom;
     }
-    
+
     return isPhantomInstalled;
   }
 
-  async connect(): Promise<import("../client").ConnectedWallet> {
+  async connect(): Promise<import('../client').ConnectedWallet> {
     if (this._connectedWallet) {
       return this._connectedWallet;
     }
 
-    if (typeof window === "undefined") {
-      throw new Error("Phantom is only available in browser environment");
+    if (typeof window === 'undefined') {
+      throw new Error('Phantom is only available in browser environment');
     }
 
     const solana = window.solana;
 
     if (!solana?.isPhantom) {
       throw new Error(
-        "Phantom wallet is not installed. Please install the Phantom extension from " +
-        "https://phantom.app/"
+        'Phantom wallet is not installed. Please install the Phantom extension from ' +
+          'https://phantom.app/'
       );
     }
 
@@ -97,14 +101,15 @@ export class PhantomWalletAdapter implements WalletAdapter {
       // Create connected wallet interface
       this._connectedWallet = {
         address: this._publicKey.toBase58(),
+        getStreamflowAdapter: () => this.getStreamflowAdapter(),
         signMessage: async (message: Uint8Array): Promise<Uint8Array> => {
           if (!solana) {
-            throw new Error("Phantom not available");
+            throw new Error('Phantom not available');
           }
 
           try {
             // Phantom's signMessage API expects an object with message and optional display
-            const result = await solana.signMessage(message, "utf8");
+            const result = await solana.signMessage(message, 'utf8');
             return result.signature;
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -113,7 +118,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
         },
         signAndSendTransaction: async (transaction: unknown): Promise<string> => {
           if (!this._publicKey || !solana) {
-            throw new Error("Wallet not connected");
+            throw new Error('Wallet not connected');
           }
 
           try {
@@ -133,7 +138,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
 
             // Get recent blockhash if not set
             if (tx instanceof Transaction && !tx.recentBlockhash) {
-              const blockhash = await this._connection.getLatestBlockhash("confirmed");
+              const blockhash = await this._connection.getLatestBlockhash('confirmed');
               tx.recentBlockhash = blockhash.blockhash;
             }
 
@@ -143,11 +148,11 @@ export class PhantomWalletAdapter implements WalletAdapter {
             // Send transaction
             const txId = await this._connection.sendRawTransaction(signed.serialize(), {
               skipPreflight: false,
-              preflightCommitment: "confirmed",
+              preflightCommitment: 'confirmed',
             });
 
             // Confirm transaction
-            await this._connection.confirmTransaction(txId, "confirmed");
+            await this._connection.confirmTransaction(txId, 'confirmed');
 
             return txId;
           } catch (error) {
@@ -160,7 +165,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
             try {
               await solana.disconnect();
             } catch (error) {
-              console.error("[Phantom] Error disconnecting:", error);
+              console.error('[Phantom] Error disconnecting:', error);
             }
           }
           this._publicKey = null;
@@ -170,31 +175,38 @@ export class PhantomWalletAdapter implements WalletAdapter {
 
       return this._connectedWallet;
     } catch (error) {
-      console.error("[Phantom] Connection error:", error);
+      console.error('[Phantom] Connection error:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorCode = (error as { code?: number })?.code;
-      
+
       // Handle specific error cases
-      if (errorCode === 4001 || errorMessage.includes("rejected") || errorMessage.includes("denied") || errorMessage.includes("User rejected")) {
-        throw new Error("Connection was rejected. Please approve the connection request in Phantom.");
-      }
-      
-      if (errorMessage.includes("not installed") || errorMessage.includes("not found")) {
+      if (
+        errorCode === 4001 ||
+        errorMessage.includes('rejected') ||
+        errorMessage.includes('denied') ||
+        errorMessage.includes('User rejected')
+      ) {
         throw new Error(
-          "Phantom wallet is not installed. Please install the Phantom extension from " +
-          "https://phantom.app/ and refresh this page."
+          'Connection was rejected. Please approve the connection request in Phantom.'
         );
       }
-      
-      if (errorMessage.includes("network") || errorMessage.includes("cluster")) {
+
+      if (errorMessage.includes('not installed') || errorMessage.includes('not found')) {
         throw new Error(
-          "Network mismatch. Please switch to the correct network in Phantom wallet settings."
+          'Phantom wallet is not installed. Please install the Phantom extension from ' +
+            'https://phantom.app/ and refresh this page.'
         );
       }
-      
+
+      if (errorMessage.includes('network') || errorMessage.includes('cluster')) {
+        throw new Error(
+          'Network mismatch. Please switch to the correct network in Phantom wallet settings.'
+        );
+      }
+
       throw new Error(
         `Failed to connect to Phantom: ${errorMessage}. ` +
-        "Make sure Phantom is installed and unlocked."
+          'Make sure Phantom is installed and unlocked.'
       );
     }
   }
@@ -213,20 +225,18 @@ export class PhantomWalletAdapter implements WalletAdapter {
    */
   getStreamflowAdapter() {
     if (!this._publicKey) {
-      throw new Error("Wallet not connected");
+      throw new Error('Wallet not connected');
     }
 
     return {
       publicKey: this._publicKey,
-      signTransaction: async <T extends Transaction | VersionedTransaction>(
-        tx: T
-      ): Promise<T> => {
+      signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
         if (!window.solana) {
-          throw new Error("Phantom not available");
+          throw new Error('Phantom not available');
         }
 
         // Ensure transaction is properly formatted
-        let transaction: Transaction | VersionedTransaction = tx;
+        const transaction: Transaction | VersionedTransaction = tx;
 
         // Set fee payer if not set
         if (transaction instanceof Transaction && !transaction.feePayer) {
@@ -235,7 +245,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
 
         // Get recent blockhash if not set
         if (transaction instanceof Transaction && !transaction.recentBlockhash) {
-          const blockhash = await this._connection.getLatestBlockhash("confirmed");
+          const blockhash = await this._connection.getLatestBlockhash('confirmed');
           transaction.recentBlockhash = blockhash.blockhash;
         }
 
@@ -247,7 +257,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
         txs: T[]
       ): Promise<T[]> => {
         if (!window.solana) {
-          throw new Error("Phantom not available");
+          throw new Error('Phantom not available');
         }
 
         const signed = await window.solana.signAllTransactions(txs);
@@ -255,13 +265,12 @@ export class PhantomWalletAdapter implements WalletAdapter {
       },
       signMessage: async (message: Uint8Array): Promise<Uint8Array> => {
         if (!window.solana) {
-          throw new Error("Phantom not available");
+          throw new Error('Phantom not available');
         }
 
-        const result = await window.solana.signMessage(message, "utf8");
+        const result = await window.solana.signMessage(message, 'utf8');
         return result.signature;
       },
     };
   }
 }
-

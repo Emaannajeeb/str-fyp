@@ -16,6 +16,8 @@ interface Approval {
   approverId: string | null;
   approvedAt: string | null;
   createdAt: string;
+  subjectSummary: string | null;
+  approver?: { id: string; email: string; name: string | null } | null;
 }
 
 export default function ApprovalsPage() {
@@ -31,15 +33,23 @@ export default function ApprovalsPage() {
 
   useEffect(() => {
     loadApprovals();
-  }, []);
+  }, [statusFilter]);
+
+  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
 
   const loadApprovals = async () => {
+    setLoading(true);
     try {
-      // For demo, we'll show a placeholder
-      // In production, fetch from /api/approvals
-      setLoading(false);
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      const response = await fetch(`/api/approvals?${params.toString()}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to load approvals');
+      setApprovals(data.approvals || []);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load approvals');
+      setApprovals([]);
+    } finally {
       setLoading(false);
     }
   };
@@ -174,12 +184,30 @@ export default function ApprovalsPage() {
         </form>
       )}
 
+      <div className="mb-4 flex items-center gap-4">
+        <label htmlFor="status-filter" className="text-sm font-medium text-gray-700">
+          Status
+        </label>
+        <select
+          id="status-filter"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+        >
+          <option value="">All</option>
+          <option value="PENDING">Pending</option>
+          <option value="APPROVED">Approved</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+      </div>
+
       {loading ? (
         <TableSkeleton rows={5} columns={5} />
       ) : approvals.length === 0 ? (
         <EmptyState
           icon={Clock}
-          title="No pending approvals"
+          title={statusFilter ? `No ${statusFilter.toLowerCase()} approvals` : 'No approvals'}
           description="Request approvals for contracts or streams to see them here. Once requested, they will appear in your approval queue."
         />
       ) : (
@@ -194,9 +222,16 @@ export default function ApprovalsPage() {
                   <div className="flex items-center gap-2">
                     <FileText className="h-5 w-5 text-gray-400" />
                     <span className="font-semibold">{approval.subjectType}</span>
-                    <span className="text-sm text-gray-500">({approval.subjectId.slice(0, 8)}...)</span>
+                    <span className="text-sm text-gray-500">
+                      ({approval.subjectId.slice(0, 8)}...)
+                    </span>
                   </div>
-                  <p className="mt-1 text-sm text-gray-600">Step {approval.step}</p>
+                  {approval.subjectSummary && (
+                    <p className="mt-1 text-sm text-gray-600">{approval.subjectSummary}</p>
+                  )}
+                  <p className="mt-1 text-sm text-gray-500">
+                    Step {approval.step} · {approval.status}
+                  </p>
                 </div>
                 {approval.status === 'PENDING' && (
                   <button

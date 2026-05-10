@@ -1,8 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Wallet, Plus, Trash2, Star, Loader2 } from 'lucide-react';
+import { Wallet, Plus, Trash2, Star, Loader2, Droplets } from 'lucide-react';
 import ConnectWalletButton from '@/components/wallet/ConnectWalletButton';
+import { useToastStore } from '@/lib/store/toast';
+
+const IS_DEVNET = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'devnet';
+const IS_TESTNET = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'testnet';
+const SHOW_FAUCET = IS_DEVNET || IS_TESTNET;
 
 interface WalletData {
   id: string;
@@ -15,10 +20,13 @@ interface WalletData {
 
 export default function WalletsPage() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
+  const [balances, setBalances] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [linking, setLinking] = useState(false);
+  const [faucetLoading, setFaucetLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const { success, error: showError } = useToastStore();
 
   // Form state
   const [address, setAddress] = useState('');
@@ -39,10 +47,50 @@ export default function WalletsPage() {
       }
 
       setWallets(data.wallets || []);
+      if (data.wallets?.length) {
+        loadBalances(data.wallets);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load wallets');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBalances = async (walletList: WalletData[]) => {
+    const next: Record<string, number> = {};
+    await Promise.all(
+      walletList.map(async (w) => {
+        try {
+          const res = await fetch(`/api/wallets/balance?address=${encodeURIComponent(w.address)}`);
+          const data = await res.json();
+          if (data.success && typeof data.balance === 'number') next[w.id] = data.balance;
+        } catch {
+          // ignore
+        }
+      })
+    );
+    setBalances((prev) => ({ ...prev, ...next }));
+  };
+
+  const handleFaucet = async (walletAddress: string) => {
+    setFaucetLoading(walletAddress);
+    try {
+      const response = await fetch('/api/wallets/faucet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: walletAddress }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Faucet request failed');
+      }
+      success(data.message || 'Airdrop successful');
+      await loadWallets();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Faucet request failed');
+    } finally {
+      setFaucetLoading(null);
     }
   };
 
@@ -280,7 +328,29 @@ export default function WalletsPage() {
                   <div className="mt-2 flex gap-4 text-xs text-gray-500">
                     <span>Provider: {wallet.provider}</span>
                     <span>Network: {wallet.network}</span>
+                    {balances[wallet.id] !== undefined && (
+                      <span className="font-medium text-gray-700">
+                        Balance: {balances[wallet.id].toFixed(4)} SOL
+                      </span>
+                    )}
                   </div>
+                  {SHOW_FAUCET && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleFaucet(wallet.address)}
+                        disabled={faucetLoading === wallet.address}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+                      >
+                        {faucetLoading === wallet.address ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Droplets className="h-3.5 w-3.5" />
+                        )}
+                        Request devnet SOL
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   {!wallet.isPrimary && (
@@ -308,4 +378,3 @@ export default function WalletsPage() {
     </div>
   );
 }
-

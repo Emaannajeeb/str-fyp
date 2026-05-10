@@ -5,24 +5,23 @@
 
 import { PhantomWalletAdapter as PhantomWalletAdapterProvider } from './providers/phantom';
 
-// Get WALLET_ALLOW_MOCK from client-side env (must be prefixed with NEXT_PUBLIC_)
-// We can't import from lib/env.ts here because it uses dotenv-safe which is server-only
-const getWalletAllowMock = (): boolean => {
-  if (typeof process === 'undefined') return false;
-  return process.env?.NEXT_PUBLIC_WALLET_ALLOW_MOCK === 'true';
-};
+export type WalletProviderId = 'metamask-solana-snap' | 'phantom' | 'solflare' | 'mock';
 
-export type WalletProviderId =
-  | 'metamask-solana-snap'
-  | 'phantom'
-  | 'solflare'
-  | 'mock';
+/** Streamflow SDK-compatible adapter (publicKey + signTransaction/signAllTransactions) */
+export interface StreamflowAdapter {
+  publicKey: { toBase58(): string };
+  signTransaction: <T>(tx: T) => Promise<T>;
+  signAllTransactions?: <T>(txs: T[]) => Promise<T[]>;
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+}
 
 export interface ConnectedWallet {
   address: string;
   signMessage: (message: Uint8Array) => Promise<Uint8Array>;
   signAndSendTransaction: (transaction: unknown) => Promise<string>;
   disconnect: () => Promise<void>;
+  /** Optional: for Streamflow SDK in browser (Phantom provides this) */
+  getStreamflowAdapter?: () => StreamflowAdapter;
 }
 
 export interface WalletAdapter {
@@ -81,12 +80,13 @@ class MockWalletAdapter implements WalletAdapter {
   async isAvailable(): Promise<boolean> {
     // Only available if WALLET_ALLOW_MOCK=true is set
     if (typeof window === 'undefined') return false;
-    
+
     // Check for WALLET_ALLOW_MOCK env var (client-side via NEXT_PUBLIC_ prefix)
-    const allowMock = typeof process !== 'undefined' 
-      ? process.env?.NEXT_PUBLIC_WALLET_ALLOW_MOCK === 'true'
-      : false;
-    
+    const allowMock =
+      typeof process !== 'undefined'
+        ? process.env?.NEXT_PUBLIC_WALLET_ALLOW_MOCK === 'true'
+        : false;
+
     // Only allow mock if explicitly enabled via env flag
     // Do not allow in development mode by default - require explicit flag
     return allowMock;
@@ -215,7 +215,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
     if (typeof window === 'undefined') return false;
     const ethereum = (window as unknown as { ethereum?: { isMetaMask?: boolean } }).ethereum;
     if (!ethereum?.isMetaMask) return false;
-    
+
     // Check if Snaps are supported (MetaMask Flask or newer versions)
     try {
       await ethereum.request({ method: 'wallet_getSnaps' });
@@ -240,9 +240,11 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
       request: (args: { method: string; params?: unknown }) => Promise<unknown>;
     }
 
-    const ethereum = (window as unknown as {
-      ethereum?: EthereumProvider;
-    }).ethereum;
+    const ethereum = (
+      window as unknown as {
+        ethereum?: EthereumProvider;
+      }
+    ).ethereum;
 
     if (!ethereum?.isMetaMask) {
       throw new Error('MetaMask is not installed. Please install MetaMask extension.');
@@ -250,35 +252,33 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
 
     try {
       // First, check if Snaps are supported
-      let snapsSupported = false;
       try {
         await ethereum.request({ method: 'wallet_getSnaps' });
-        snapsSupported = true;
-      } catch (error) {
+      } catch {
         throw new Error(
           'MetaMask Snaps are not supported. Please install MetaMask Flask ' +
-          '(https://metamask.io/flask/) or update to a version that supports Snaps. ' +
-          'Regular MetaMask does not support Solana Snaps yet.'
+            '(https://metamask.io/flask/) or update to a version that supports Snaps. ' +
+            'Regular MetaMask does not support Solana Snaps yet.'
         );
       }
 
       // Check if Solana Snap is installed
       let snapInstalled = false;
       let installedSnaps: Record<string, { id: string; version: string }> = {};
-      
+
       try {
         installedSnaps = (await ethereum.request({
           method: 'wallet_getSnaps',
         })) as Record<string, { id: string; version: string }>;
-        
+
         // Check if our specific Snap is installed
         if (installedSnaps[this.SNAP_ID]) {
           snapInstalled = true;
           console.log('[MetaMask] Solana Snap already installed');
         } else {
           // Check if any Solana snap is installed (different version/package)
-          const solanaSnapIds = Object.keys(installedSnaps).filter((id) => 
-            id.includes('solana') || id.includes('@solana')
+          const solanaSnapIds = Object.keys(installedSnaps).filter(
+            (id) => id.includes('solana') || id.includes('@solana')
           );
           if (solanaSnapIds.length > 0) {
             console.log('[MetaMask] Found Solana Snap:', solanaSnapIds[0]);
@@ -300,26 +300,28 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
           // The Snap will prompt for permissions during installation
           const snapParams: Record<string, unknown> = {};
           snapParams[this.SNAP_ID] = {};
-          
+
           console.log('[MetaMask] Installing Solana Snap:', this.SNAP_ID);
-          const installResult = await ethereum.request({
+          const installResult = (await ethereum.request({
             method: 'wallet_requestSnaps',
             params: snapParams,
-          }) as Record<string, { enabled: boolean; id: string }>;
-          
+          })) as Record<string, { enabled: boolean; id: string }>;
+
           // Verify the Snap was installed and enabled
           const installedSnap = installResult?.[this.SNAP_ID];
           if (!installedSnap || !installedSnap.enabled) {
-            throw new Error('Snap was installed but not enabled. Please check MetaMask permissions.');
+            throw new Error(
+              'Snap was installed but not enabled. Please check MetaMask permissions.'
+            );
           }
-          
+
           console.log('[MetaMask] Solana Snap installed and enabled successfully');
         } catch (error) {
           // Better error message extraction
           let errorMessage = 'Unknown error';
           let errorCode: string | undefined;
           let errorData: unknown;
-          
+
           if (error instanceof Error) {
             errorMessage = error.message;
             errorData = error;
@@ -336,18 +338,18 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
           } else {
             errorMessage = String(error);
           }
-          
+
           console.error('[MetaMask] Snap installation error:', {
             message: errorMessage,
             code: errorCode,
             data: errorData,
             fullError: error,
           });
-          
+
           // Provide more helpful error messages based on error code/message
           const lowerMessage = errorMessage.toLowerCase();
           const codeStr = String(errorCode || '').toLowerCase();
-          
+
           if (
             lowerMessage.includes('rejected') ||
             lowerMessage.includes('denied') ||
@@ -364,8 +366,8 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
           ) {
             throw new Error(
               `Solana Snap "${this.SNAP_ID}" not found. ` +
-              'The Snap may not be published yet or the ID may be incorrect. ' +
-              'Please check the MetaMask Snap registry or try a different Snap ID.'
+                'The Snap may not be published yet or the ID may be incorrect. ' +
+                'Please check the MetaMask Snap registry or try a different Snap ID.'
             );
           } else if (
             lowerMessage.includes('snap') &&
@@ -373,25 +375,21 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
           ) {
             throw new Error(
               'MetaMask Snaps are not supported. Please install MetaMask Flask ' +
-              '(https://metamask.io/flask/) - regular MetaMask does not support Snaps yet.'
+                '(https://metamask.io/flask/) - regular MetaMask does not support Snaps yet.'
             );
-          } else if (
-            lowerMessage.includes('flask') ||
-            lowerMessage.includes('experimental')
-          ) {
+          } else if (lowerMessage.includes('flask') || lowerMessage.includes('experimental')) {
             throw new Error(
               'MetaMask Flask is required for Solana Snaps. ' +
-              'Please install MetaMask Flask from https://metamask.io/flask/'
+                'Please install MetaMask Flask from https://metamask.io/flask/'
             );
           } else {
             // Show the actual error message if we can extract it
-            const displayMessage = errorMessage !== 'Unknown error' 
-              ? errorMessage 
-              : 'An unknown error occurred';
+            const displayMessage =
+              errorMessage !== 'Unknown error' ? errorMessage : 'An unknown error occurred';
             throw new Error(
               `Failed to install Solana Snap: ${displayMessage}. ` +
-              'Please make sure you have MetaMask Flask installed and try again. ' +
-              'Download Flask: https://metamask.io/flask/'
+                'Please make sure you have MetaMask Flask installed and try again. ' +
+                'Download Flask: https://metamask.io/flask/'
             );
           }
         }
@@ -403,7 +401,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
         const snaps = (await ethereum.request({
           method: 'wallet_getSnaps',
         })) as Record<string, { enabled: boolean; id: string; permissionName?: string }>;
-        
+
         const currentSnap = snaps[this.SNAP_ID];
         if (!currentSnap || !currentSnap.enabled) {
           throw new Error(
@@ -412,16 +410,14 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
         }
       } catch (error) {
         console.error('[MetaMask] Error checking Snap status:', error);
-        throw new Error(
-          'Failed to verify Snap installation. Please check MetaMask and try again.'
-        );
+        throw new Error('Failed to verify Snap installation. Please check MetaMask and try again.');
       }
 
       // Connect to Solana Snap and get account
       // If we get a permission error, try requesting the Snap again to trigger permission prompts
       let response: { address: string };
       let retryWithPermissionRequest = false;
-      
+
       try {
         response = (await ethereum.request({
           method: 'wallet_invokeSnap',
@@ -436,7 +432,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
         // Better error message extraction
         let errorMessage = 'Unknown error';
         let errorCode: string | undefined;
-        
+
         if (error instanceof Error) {
           errorMessage = error.message;
         } else if (typeof error === 'object' && error !== null) {
@@ -449,13 +445,13 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
         } else {
           errorMessage = String(error);
         }
-        
+
         console.error('[MetaMask] Error getting account:', {
           message: errorMessage,
           code: errorCode,
           fullError: error,
         });
-        
+
         // Check if it's a permission error
         const lowerMessage = errorMessage.toLowerCase();
         if (
@@ -464,31 +460,33 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
           lowerMessage.includes('invalid origin')
         ) {
           // Try requesting the Snap again - this should trigger permission prompts
-          console.log('[MetaMask] Permission error detected, requesting Snap again to trigger permission prompts...');
+          console.log(
+            '[MetaMask] Permission error detected, requesting Snap again to trigger permission prompts...'
+          );
           retryWithPermissionRequest = true;
         } else {
           throw new Error(
             `Failed to get Solana account from MetaMask: ${errorMessage}. ` +
-            'Make sure the Solana Snap is properly installed and try again.'
+              'Make sure the Solana Snap is properly installed and try again.'
           );
         }
       }
-      
+
       // If we got a permission error, try requesting the Snap again
       if (retryWithPermissionRequest) {
         try {
           console.log('[MetaMask] Requesting Snap installation to trigger permission prompts...');
           const snapParams: Record<string, unknown> = {};
           snapParams[this.SNAP_ID] = {};
-          
+
           await ethereum.request({
             method: 'wallet_requestSnaps',
             params: snapParams,
           });
-          
+
           // Wait a moment for permission to be granted
           await new Promise((resolve) => setTimeout(resolve, 1000));
-          
+
           // Try again
           response = (await ethereum.request({
             method: 'wallet_invokeSnap',
@@ -500,14 +498,15 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
             } as unknown,
           })) as { address: string };
         } catch (retryError) {
-          const retryErrorMessage = retryError instanceof Error ? retryError.message : String(retryError);
+          const retryErrorMessage =
+            retryError instanceof Error ? retryError.message : String(retryError);
           console.error('[MetaMask] Retry after permission request failed:', retryErrorMessage);
-          
+
           throw new Error(
             'This website does not have permission to use the Solana Snap. ' +
-            'Please approve the permission request in MetaMask Flask, or go to ' +
-            'MetaMask Flask → Settings → Snaps → "Solflare Solana Snap" → ' +
-            `and grant permission to this website (${window.location.origin}).`
+              'Please approve the permission request in MetaMask Flask, or go to ' +
+              'MetaMask Flask → Settings → Snaps → "Solflare Solana Snap" → ' +
+              `and grant permission to this website (${window.location.origin}).`
           );
         }
       }
@@ -526,7 +525,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
             throw new Error('MetaMask not available');
           }
 
-          const response = await ethereum.request({
+          const response = (await ethereum.request({
             method: 'wallet_invokeSnap',
             params: {
               snapId: this.SNAP_ID,
@@ -537,7 +536,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
                 },
               },
             } as unknown,
-          }) as { signature: number[] };
+          })) as { signature: number[] };
 
           if (!response?.signature) {
             throw new Error('Failed to sign message');
@@ -552,7 +551,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
 
           // Convert transaction to format expected by Snap
           // In production, you'd serialize the Solana transaction properly
-          const response = await ethereum.request({
+          const response = (await ethereum.request({
             method: 'wallet_invokeSnap',
             params: {
               snapId: this.SNAP_ID,
@@ -563,7 +562,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
                 },
               },
             } as unknown,
-          }) as { signature: string };
+          })) as { signature: string };
 
           if (!response?.signature) {
             throw new Error('Failed to sign and send transaction');
@@ -582,9 +581,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
     } catch (error) {
       console.error('[MetaMask] Connection error:', error);
       throw new Error(
-        error instanceof Error
-          ? error.message
-          : 'Failed to connect to MetaMask Solana Snap'
+        error instanceof Error ? error.message : 'Failed to connect to MetaMask Solana Snap'
       );
     }
   }
@@ -605,12 +602,14 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
       throw new Error('MetaMask is only available in browser environment');
     }
 
-    const ethereum = (window as unknown as {
-      ethereum?: {
-        isMetaMask?: boolean;
-        request: (args: { method: string; params?: unknown }) => Promise<unknown>;
-      };
-    }).ethereum;
+    const ethereum = (
+      window as unknown as {
+        ethereum?: {
+          isMetaMask?: boolean;
+          request: (args: { method: string; params?: unknown }) => Promise<unknown>;
+        };
+      }
+    ).ethereum;
 
     if (!ethereum?.isMetaMask) {
       throw new Error('MetaMask is not installed. Please install MetaMask Flask extension.');
@@ -621,21 +620,21 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
       // This will trigger permission prompts even if already installed
       const snapParams: Record<string, unknown> = {};
       snapParams[this.SNAP_ID] = {};
-      
+
       console.log('[MetaMask] Reinstalling Solana Snap:', this.SNAP_ID);
-      const installResult = await ethereum.request({
+      const installResult = (await ethereum.request({
         method: 'wallet_requestSnaps',
         params: snapParams,
-      }) as Record<string, { enabled: boolean; id: string }>;
-      
+      })) as Record<string, { enabled: boolean; id: string }>;
+
       // Verify the Snap was installed and enabled
       const installedSnap = installResult?.[this.SNAP_ID];
       if (!installedSnap || !installedSnap.enabled) {
         throw new Error('Snap was installed but not enabled. Please check MetaMask permissions.');
       }
-      
+
       console.log('[MetaMask] Solana Snap reinstalled successfully');
-      
+
       // Clear any cached connection
       this.connectedWallet = null;
     } catch (error) {
@@ -652,7 +651,7 @@ if (typeof window !== 'undefined') {
   walletRegistry.register(new PhantomWalletAdapter());
   walletRegistry.register(new SolflareWalletAdapter());
   walletRegistry.register(new MetaMaskSolanaSnapAdapter());
-  
+
   // Register Mock only if allowed via env flag (checked dynamically via isAvailable)
   // Even if registered, isAvailable() will filter it out when WALLET_ALLOW_MOCK=false
   const mockAdapter = new MockWalletAdapter();
@@ -660,12 +659,13 @@ if (typeof window !== 'undefined') {
 } else {
   // In server environment, only register mock if allowed
   // Use client-side env check (NEXT_PUBLIC_ prefix) since we can't import lib/env here
-  const allowMock = typeof process !== 'undefined' 
-    ? process.env?.NEXT_PUBLIC_WALLET_ALLOW_MOCK === 'true' || process.env?.WALLET_ALLOW_MOCK === 'true'
-    : false;
+  const allowMock =
+    typeof process !== 'undefined'
+      ? process.env?.NEXT_PUBLIC_WALLET_ALLOW_MOCK === 'true' ||
+        process.env?.WALLET_ALLOW_MOCK === 'true'
+      : false;
   if (allowMock) {
     const mockAdapter = new MockWalletAdapter();
     walletRegistry.register(mockAdapter);
   }
 }
-

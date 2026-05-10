@@ -16,41 +16,116 @@ async function listContractsHandler(
   session: { userId: string; organizationId: string }
 ) {
   try {
-    const contracts = await db.contract.findMany({
-      where: {
-        organizationId: session.organizationId,
-      },
-      include: {
-        employee: {
-          select: {
-            id: true,
-            displayName: true,
+    const { searchParams } = new URL(request.url);
+    const eligibleForStream = searchParams.get('eligibleForStream') === 'true';
+
+    const baseWhere = {
+      organizationId: session.organizationId,
+      active: true,
+    };
+
+    let contracts: Awaited<ReturnType<typeof db.contract.findMany>>;
+
+    if (eligibleForStream) {
+      contracts = await db.contract.findMany({
+        where: baseWhere,
+        include: {
+          employee: {
+            include: {
+              user: {
+                include: {
+                  wallets: {
+                    where: {
+                      organizationId: session.organizationId,
+                      isPrimary: true,
+                    },
+                  },
+                },
+              },
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: { createdAt: 'desc' },
+      });
+      const contractIds = contracts.map((c) => c.id);
+      const [contractApprovals, streamApprovals, existingStreams] = await Promise.all([
+        db.approval.findMany({
+          where: {
+            organizationId: session.organizationId,
+            subjectType: 'CONTRACT',
+            subjectId: { in: contractIds },
+            status: 'APPROVED',
+          },
+          select: { subjectId: true },
+        }),
+        db.approval.findMany({
+          where: {
+            organizationId: session.organizationId,
+            subjectType: 'STREAM',
+            subjectId: { in: contractIds },
+            step: 1,
+            status: 'APPROVED',
+          },
+          select: { subjectId: true },
+        }),
+        db.stream.findMany({
+          where: { contractId: { in: contractIds } },
+          select: { contractId: true },
+        }),
+      ]);
+      const approvedContractIds = new Set(contractApprovals.map((a) => a.subjectId));
+      const approvedStreamIds = new Set(streamApprovals.map((a) => a.subjectId));
+      const hasStreamIds = new Set(existingStreams.map((s) => s.contractId));
+      contracts = contracts.filter(
+        (c) =>
+          approvedContractIds.has(c.id) && approvedStreamIds.has(c.id) && !hasStreamIds.has(c.id)
+      );
+    } else {
+      contracts = await db.contract.findMany({
+        where: baseWhere,
+        include: {
+          employee: {
+            select: {
+              id: true,
+              displayName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      contracts: contracts.map((contract) => ({
-        id: contract.id,
-        employeeId: contract.employeeId,
-        employee: contract.employee,
-        tokenMint: contract.tokenMint,
-        tokenSymbol: contract.tokenSymbol,
-        rateType: contract.rateType,
-        amountPerPeriod: contract.amountPerPeriod.toString(),
-        period: contract.period,
-        startDate: contract.startDate.toISOString(),
-        endDate: contract.endDate?.toISOString() || null,
-        active: contract.active,
-        // Note: onchainTx field will be added after migration
-        // For now, we'll check notes or add it later
-        onchainTx: null, // Will be populated after adding field to schema
-      })),
+      contracts: contracts.map((contract) => {
+        const emp = contract.employee as {
+          id: string;
+          displayName: string;
+          user?: { wallets: { address: string }[] };
+        } | null;
+        const recipientWallet =
+          eligibleForStream && emp?.user?.wallets?.length ? emp.user.wallets[0].address : null;
+        return {
+          id: contract.id,
+          employeeId: contract.employeeId,
+          employee: emp
+            ? {
+                id: emp.id,
+                displayName: emp.displayName,
+                ...(recipientWallet != null ? { recipientWallet } : {}),
+              }
+            : null,
+          tokenMint: contract.tokenMint,
+          tokenSymbol: contract.tokenSymbol,
+          rateType: contract.rateType,
+          amountPerPeriod: contract.amountPerPeriod.toString(),
+          period: contract.period,
+          startDate: contract.startDate.toISOString(),
+          endDate: contract.endDate?.toISOString() || null,
+          active: contract.active,
+          onchainTx: contract.onchainTx ?? null,
+        };
+      }),
     });
   } catch (error) {
     console.error('List contracts error:', error);
@@ -109,17 +184,15 @@ async function createContractHandler(
     });
 
     if (!employee) {
-      return NextResponse.json(
-        { error: 'Employee not found or access denied' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Employee not found or access denied' }, { status: 404 });
     }
 
     // Get employee's primary wallet address if available
     const employeeWallet = employee.user?.wallets[0]?.address;
 
     // Parse dates
-    const startDate = typeof data.startDate === 'string' ? new Date(data.startDate) : data.startDate;
+    const startDate =
+      typeof data.startDate === 'string' ? new Date(data.startDate) : data.startDate;
     const endDate = data.endDate
       ? typeof data.endDate === 'string'
         ? new Date(data.endDate)
@@ -128,7 +201,9 @@ async function createContractHandler(
 
     // Convert amount to Decimal
     const amountPerPeriod = new Decimal(
-      typeof data.amountPerPeriod === 'string' ? data.amountPerPeriod : data.amountPerPeriod.toString()
+      typeof data.amountPerPeriod === 'string'
+        ? data.amountPerPeriod
+        : data.amountPerPeriod.toString()
     );
 
     // Create contract (we'll update with onchainTx after transaction is created)
@@ -254,4 +329,3 @@ export const GET = withAuthAndRBAC(listContractsHandler, {
 export const POST = withAuthAndRBAC(createContractHandler, {
   requiredPermissions: ['MANAGE_EMPLOYEES'],
 });
-

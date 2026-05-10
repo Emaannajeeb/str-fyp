@@ -1,0 +1,208 @@
+/**
+ * Google OAuth callback: exchange code for tokens, get user info, create session
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/server/db';
+import { createSession } from '@/server/auth/session';
+import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
+import { env } from '@/lib/env';
+
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code');
+  const state = searchParams.get('state'); // optional invite code
+  const errorParam = searchParams.get('error');
+
+  const signInUrl = new URL('/signin', env.APP_BASE_URL);
+  const appUrl = new URL('/settings/wallets', env.APP_BASE_URL);
+
+  if (errorParam) {
+    signInUrl.searchParams.set(
+      'error',
+      errorParam === 'access_denied' ? 'Access denied' : errorParam
+    );
+    return NextResponse.redirect(signInUrl);
+  }
+
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    signInUrl.searchParams.set('error', 'Google sign-in is not configured');
+    return NextResponse.redirect(signInUrl);
+  }
+
+  if (!code) {
+    signInUrl.searchParams.set('error', 'Missing authorization code');
+    return NextResponse.redirect(signInUrl);
+  }
+
+  const redirectUri = new URL('/api/auth/google/callback', env.APP_BASE_URL).toString();
+
+  try {
+    const tokenRes = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenRes.ok) {
+      const err = await tokenRes.text();
+      console.error('Google token error:', err);
+      signInUrl.searchParams.set('error', 'Google sign-in failed');
+      return NextResponse.redirect(signInUrl);
+    }
+
+    const tokens = (await tokenRes.json()) as { access_token: string };
+    const accessToken = tokens.access_token;
+
+    const userRes = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!userRes.ok) {
+      signInUrl.searchParams.set('error', 'Failed to load profile');
+      return NextResponse.redirect(signInUrl);
+    }
+
+    const profile = (await userRes.json()) as { email: string; name?: string };
+    const email = profile.email;
+    if (!email) {
+      signInUrl.searchParams.set('error', 'Google account has no email');
+      return NextResponse.redirect(signInUrl);
+    }
+
+    const metadata = getRequestMetadata(request);
+    const inviteCode = (state ?? '').trim();
+
+    if (inviteCode) {
+      const invite = await db.invite.findUnique({
+        where: { code: inviteCode },
+        include: { organization: true, role: true },
+      });
+      if (!invite) {
+        signInUrl.searchParams.set('error', 'Invalid invite code');
+        signInUrl.searchParams.set('invite', inviteCode);
+        return NextResponse.redirect(signInUrl);
+      }
+      if (invite.usedAt ?? invite.usedById) {
+        signInUrl.searchParams.set('error', 'This invite has already been used');
+        return NextResponse.redirect(signInUrl);
+      }
+      if (new Date() > invite.expiresAt) {
+        signInUrl.searchParams.set('error', 'This invite has expired');
+        return NextResponse.redirect(signInUrl);
+      }
+
+      let user = await db.user.findUnique({ where: { email } });
+      if (!user) {
+        user = await db.user.create({
+          data: {
+            email,
+            name: profile.name ?? email.split('@')[0],
+          },
+        });
+      }
+
+      const existingUserRole = await db.userRole.findFirst({
+        where: {
+          userId: user.id,
+          organizationId: invite.organizationId,
+          roleId: invite.roleId,
+        },
+      });
+      if (!existingUserRole) {
+        await db.userRole.create({
+          data: {
+            userId: user.id,
+            organizationId: invite.organizationId,
+            roleId: invite.roleId,
+          },
+        });
+      }
+
+      await db.invite.update({
+        where: { id: invite.id },
+        data: { usedById: user.id, usedAt: new Date() },
+      });
+
+      await createSession(user.id, invite.organizationId);
+      await createAuditLog({
+        organizationId: invite.organizationId,
+        actorId: user.id,
+        action: 'LOGIN',
+        entity: 'USER',
+        entityId: user.id,
+        after: { method: 'google', email, inviteCode: invite.code },
+        ...metadata,
+      });
+
+      return NextResponse.redirect(appUrl);
+    }
+
+    // No invite: find or create user and use first org or default org
+    let user = await db.user.findUnique({ where: { email } });
+    if (!user) {
+      user = await db.user.create({
+        data: {
+          email,
+          name: profile.name ?? email.split('@')[0],
+        },
+      });
+    }
+
+    const userRole = await db.userRole.findFirst({
+      where: { userId: user.id },
+      include: { organization: true },
+    });
+
+    let organizationId: string;
+    if (!userRole) {
+      const org = await db.organization.findFirst();
+      if (!org) {
+        signInUrl.searchParams.set(
+          'error',
+          'No organization found. Use an invite link or contact support.'
+        );
+        return NextResponse.redirect(signInUrl);
+      }
+      const employeeRole = await db.role.findUnique({ where: { key: 'EMPLOYEE' } });
+      if (employeeRole) {
+        await db.userRole.create({
+          data: {
+            userId: user.id,
+            organizationId: org.id,
+            roleId: employeeRole.id,
+          },
+        });
+      }
+      organizationId = org.id;
+      await createSession(user.id, org.id);
+    } else {
+      organizationId = userRole.organizationId;
+      await createSession(user.id, userRole.organizationId);
+    }
+
+    await createAuditLog({
+      organizationId,
+      actorId: user.id,
+      action: 'LOGIN',
+      entity: 'USER',
+      entityId: user.id,
+      after: { method: 'google', email },
+      ...metadata,
+    });
+
+    return NextResponse.redirect(appUrl);
+  } catch (err) {
+    console.error('Google callback error:', err);
+    signInUrl.searchParams.set('error', 'Sign-in failed');
+    return NextResponse.redirect(signInUrl);
+  }
+}

@@ -1,14 +1,32 @@
 'use client';
 
 import Link from 'next/link';
-import { Bell, User, LogOut } from 'lucide-react';
-import { useState } from 'react';
+import { Bell, User, LogOut, Wallet } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
-// Check if we're on devnet
 const IS_DEVNET = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'devnet';
+const IS_TESTNET = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'testnet';
+const SHOW_BALANCE = IS_DEVNET || IS_TESTNET;
 
 export function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!SHOW_BALANCE) return;
+    let cancelled = false;
+    fetch('/api/wallets/balance', { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data.success && typeof data.balance === 'number') {
+          setBalance(data.balance);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -31,21 +49,32 @@ export function Header() {
           {/* Breadcrumb or page title can go here */}
         </div>
         <div className="flex items-center gap-x-4 lg:gap-x-6">
-          {/* Devnet Badge */}
-          {IS_DEVNET && (
-            <div className="hidden sm:flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
-              <span className="h-2 w-2 rounded-full bg-yellow-600 animate-pulse" />
-              Solana Devnet (Testnet Mode)
+          {/* Devnet/Testnet Badge + Balance */}
+          {SHOW_BALANCE && (
+            <div className="hidden items-center gap-3 sm:flex">
+              <div className="flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700">
+                <Wallet className="h-3.5 w-3.5" />
+                {balance !== null ? `${balance.toFixed(4)} SOL` : '— SOL'}
+              </div>
+              {IS_DEVNET && (
+                <div className="flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-yellow-600" />
+                  Devnet
+                </div>
+              )}
+              {IS_TESTNET && !IS_DEVNET && (
+                <div className="flex items-center gap-2 rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-800">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-yellow-600" />
+                  Testnet
+                </div>
+              )}
             </div>
           )}
           {/* Notifications */}
-          <button
-            type="button"
-            className="-m-2.5 p-2.5 text-gray-400 hover:text-gray-500 relative"
-          >
+          <button type="button" className="relative -m-2.5 p-2.5 text-gray-400 hover:text-gray-500">
             <span className="sr-only">View notifications</span>
             <Bell className="h-6 w-6" aria-hidden="true" />
-            <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-400 ring-2 ring-white" />
+            <span className="absolute right-0 top-0 block h-2 w-2 rounded-full bg-red-400 ring-2 ring-white" />
           </button>
 
           {/* User menu */}
@@ -63,10 +92,7 @@ export function Header() {
 
             {userMenuOpen && (
               <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setUserMenuOpen(false)}
-                />
+                <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
                 <div className="absolute right-0 z-50 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
                   <Link
                     href="/settings/wallets"
@@ -91,4 +117,3 @@ export function Header() {
     </div>
   );
 }
-

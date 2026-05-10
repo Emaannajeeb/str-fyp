@@ -21,14 +21,15 @@
     "test:e2e:ui": "playwright test --ui",
     "worker:reconcile": "tsx server/jobs/reconcile-simple.ts",
     "dev:all": "concurrently \"pnpm dev\" \"pnpm worker:reconcile\"",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
-    "@streamflow/stream": "^9.3.1",
-    "@solana/web3.js": "^1.95.8",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-phantom": "^0.9.24",
+    "@solana/web3.js": "^1.95.8",
+    "@streamflow/stream": "^9.3.1",
     "@tanstack/react-query": "^5.62.0",
     "@types/pdfmake": "^0.2.12",
     "bullmq": "^5.20.0",
@@ -42,13 +43,14 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.4.1",
+    "tsx": "^4.19.2",
     "zod": "^3.23.8",
-    "zustand": "^5.0.1",
-    "tsx": "^4.19.2"
+    "zustand": "^5.0.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.7.0",
     "@commitlint/config-conventional": "^19.7.0",
+    "@eslint/eslintrc": "^3.3.5",
     "@playwright/test": "^1.56.1",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.6",

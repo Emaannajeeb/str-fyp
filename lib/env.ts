@@ -55,6 +55,8 @@ const envSchema = z.object({
     .transform((val) => val === 'true'),
   STREAMFLOW_SENDER_PRIVATE_KEY: z.string().optional(),
   SOLANA_EXPLORER_BASE: z.string().url().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 });
 
 // Parse and validate environment variables
@@ -67,7 +69,7 @@ export type Env = z.infer<typeof envSchema>;
 export const SOLANA_CLUSTER_URL = env.SOLANA_CLUSTER_URL;
 export const SOLANA_CLUSTER = env.SOLANA_CLUSTER;
 export const IS_DEVNET = SOLANA_CLUSTER === 'devnet';
-export const SOLANA_EXPLORER_BASE = process.env.SOLANA_EXPLORER_BASE ?? 'https://explorer.solana.com';
+export const SOLANA_EXPLORER_BASE =
+  process.env.SOLANA_EXPLORER_BASE ?? 'https://explorer.solana.com';
 export const STREAMFLOW_ENABLED = env.STREAMFLOW_ENABLED === true;
 export const WALLET_ALLOW_MOCK = env.WALLET_ALLOW_MOCK === true;
-

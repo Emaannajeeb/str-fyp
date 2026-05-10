@@ -80,6 +80,7 @@ model Organization {
   departments   Department[]
   notificationSettings OrganizationNotificationSettings?
   auditReports  AuditReport[]
+  invites       Invite[]
 
   @@index([slug])
   @@map("organizations")
@@ -101,6 +102,8 @@ model User {
   notifications     Notification[]
   departmentMembers DepartmentMember[]
   auditReports      AuditReport[]
+  invitesCreated    Invite[]         @relation("InviteCreatedBy")
+  invitesUsed       Invite[]         @relation("InviteUsedBy")
 
   @@index([email])
   @@map("users")
@@ -135,6 +138,7 @@ model Role {
   // Relations
   rolePermissions RolePermission[]
   userRoles       UserRole[]
+  invites         Invite[]
 
   @@index([key])
   @@map("roles")
@@ -165,6 +169,29 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+model Invite {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  organizationId String
+  roleId         String
+  createdById    String
+  expiresAt      DateTime
+  usedById       String?
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  usedBy       User?        @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
+
+  @@index([code])
+  @@index([organizationId])
+  @@index([expiresAt])
+  @@map("invites")
 }
 
 model UserRole {
