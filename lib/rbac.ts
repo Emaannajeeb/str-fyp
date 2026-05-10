@@ -186,7 +186,6 @@ async function logPermissionDenial(
         action: 'PERMISSION_DENIED',
         entity: 'PERMISSION',
         entityId: permissionKey || 'UNKNOWN',
-        before: null,
         after: auditData,
         hash,
         ip: requestMetadata?.ip || null,

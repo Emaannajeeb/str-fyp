@@ -15,6 +15,7 @@ import { env } from '@/lib/env';
 import { canCommit } from '@/server/finance/budget';
 import { z } from 'zod';
 import { createHash } from 'crypto';
+import { Transaction, VersionedTransaction } from '@solana/web3.js';
 
 const createStreamSchema = z.object({
   contractId: z.string().min(1, 'Contract ID is required'),
@@ -207,7 +208,9 @@ async function createStreamHandler(
     // already created the stream using Streamflow SDK with Phantom wallet
     // We just need to store it in the database
     let streamflowResult: { streamId: string; onchainTx: string | null; status: StreamStatus };
-    
+    let auditStreamConfigPayload: Record<string, unknown> | undefined;
+    let auditConfigHash: string | undefined;
+
     if (data.streamflowStreamId && data.onchainTx) {
       // Client-side creation: use the provided stream ID and transaction
       streamflowResult = {
@@ -232,7 +235,9 @@ async function createStreamHandler(
       });
 
       // Get server-side wallet adapter (requires STREAMFLOW_SENDER_PRIVATE_KEY)
-      const { getServerWalletAdapter } = await import('@/server/streamflow/wallet-adapter');
+      const { getServerWalletAdapter, signDetachedWithKeypair } = await import(
+        '@/server/streamflow/wallet-adapter'
+      );
       const senderWallet = getServerWalletAdapter();
 
       const streamConfig = {
@@ -257,8 +262,8 @@ async function createStreamHandler(
         isNative: contract.tokenMint === 'So11111111111111111111111111111111111111112',
       };
 
-      // Create hash of config for audit
-      const configHash = createHash('sha256')
+      auditStreamConfigPayload = streamConfig;
+      auditConfigHash = createHash('sha256')
         .update(JSON.stringify(streamConfig))
         .digest('hex');
 
@@ -266,16 +271,18 @@ async function createStreamHandler(
         // Create a ConnectedWallet wrapper for the server adapter
         const serverWallet = {
           address: senderWallet.publicKey.toString(),
-          signMessage: async (msg: Uint8Array) => {
-            const sig = senderWallet.sign(msg);
-            return sig.signature;
-          },
+          signMessage: async (msg: Uint8Array) =>
+            signDetachedWithKeypair(senderWallet, msg),
           signAndSendTransaction: async (tx: unknown) => {
-            // Server-side: sign and send transaction
-            const signed = senderWallet.signTransaction(tx as any);
-            // Note: This requires sending the transaction to the network
-            // For now, we'll let Streamflow SDK handle sending
-            return 'server-tx-id';
+            if (tx instanceof Transaction) {
+              tx.partialSign(senderWallet);
+              return 'server-tx-id';
+            }
+            if (tx instanceof VersionedTransaction) {
+              tx.sign([senderWallet]);
+              return 'server-tx-id';
+            }
+            throw new Error('Invalid transaction type for signing');
           },
           disconnect: async () => {},
         };
@@ -346,10 +353,10 @@ async function createStreamHandler(
       entity: 'STREAM',
       entityId: stream.id,
       after: {
-        ...streamConfig,
+        ...(auditStreamConfigPayload ?? {}),
         streamId: streamflowResult.streamId,
         onchainTx: streamflowResult.onchainTx,
-        configHash, // Hash of stream configuration
+        ...(auditConfigHash ? { configHash: auditConfigHash } : {}),
       },
       ...metadata,
     });

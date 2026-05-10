@@ -3,6 +3,7 @@
  * Supports multiple wallet providers through a registry pattern
  */
 
+import type { Transaction, VersionedTransaction } from '@solana/web3.js';
 import { PhantomWalletAdapter as PhantomWalletAdapterProvider } from './providers/phantom';
 
 export type WalletProviderId = 'metamask-solana-snap' | 'phantom' | 'solflare' | 'mock';
@@ -10,8 +11,10 @@ export type WalletProviderId = 'metamask-solana-snap' | 'phantom' | 'solflare' |
 /** Streamflow SDK-compatible adapter (publicKey + signTransaction/signAllTransactions) */
 export interface StreamflowAdapter {
   publicKey: { toBase58(): string };
-  signTransaction: <T>(tx: T) => Promise<T>;
-  signAllTransactions?: <T>(txs: T[]) => Promise<T[]>;
+  signTransaction: <T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>;
+  signAllTransactions?: <T extends Transaction | VersionedTransaction>(
+    txs: T[]
+  ) => Promise<T[]>;
   signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
 }
 
@@ -22,6 +25,12 @@ export interface ConnectedWallet {
   disconnect: () => Promise<void>;
   /** Optional: for Streamflow SDK in browser (Phantom provides this) */
   getStreamflowAdapter?: () => StreamflowAdapter;
+}
+
+/** EIP-1193 subset for MetaMask detection and Snap APIs */
+interface MetaMaskEthereumProvider {
+  isMetaMask?: boolean;
+  request: (args: { method: string; params?: unknown }) => Promise<unknown>;
 }
 
 export interface WalletAdapter {
@@ -169,7 +178,7 @@ class PhantomWalletAdapter implements WalletAdapter {
   /**
    * Get Streamflow SDK-compatible adapter
    */
-  getStreamflowAdapter() {
+  getStreamflowAdapter(): StreamflowAdapter {
     return this.provider.getStreamflowAdapter();
   }
 }
@@ -213,7 +222,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
   async isAvailable(): Promise<boolean> {
     // Check if MetaMask is installed
     if (typeof window === 'undefined') return false;
-    const ethereum = (window as unknown as { ethereum?: { isMetaMask?: boolean } }).ethereum;
+    const ethereum = (window as unknown as { ethereum?: MetaMaskEthereumProvider }).ethereum;
     if (!ethereum?.isMetaMask) return false;
 
     // Check if Snaps are supported (MetaMask Flask or newer versions)
@@ -235,16 +244,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
       throw new Error('MetaMask is only available in browser environment');
     }
 
-    interface EthereumProvider {
-      isMetaMask?: boolean;
-      request: (args: { method: string; params?: unknown }) => Promise<unknown>;
-    }
-
-    const ethereum = (
-      window as unknown as {
-        ethereum?: EthereumProvider;
-      }
-    ).ethereum;
+    const ethereum = (window as unknown as { ethereum?: MetaMaskEthereumProvider }).ethereum;
 
     if (!ethereum?.isMetaMask) {
       throw new Error('MetaMask is not installed. Please install MetaMask extension.');
@@ -415,7 +415,7 @@ class MetaMaskSolanaSnapAdapter implements WalletAdapter {
 
       // Connect to Solana Snap and get account
       // If we get a permission error, try requesting the Snap again to trigger permission prompts
-      let response: { address: string };
+      let response: { address: string } | undefined;
       let retryWithPermissionRequest = false;
 
       try {

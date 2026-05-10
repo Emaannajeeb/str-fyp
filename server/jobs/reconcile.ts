@@ -3,11 +3,29 @@
  * Background job to sync stream statuses and accruals with Streamflow
  */
 
+import type { NotificationType, StreamStatus as PrismaStreamStatus } from '@prisma/client';
 import { Worker, Queue } from 'bullmq';
+import { env } from '@/lib/env';
 import { db } from '../db';
 import { createStreamflowClient } from '../streamflow';
-import { env } from '../lib/env';
-import type { StreamDetails } from '../streamflow/types';
+import type { StreamStatus as RemoteStreamStatus } from '../streamflow/types';
+
+function remoteStatusToDb(remote: RemoteStreamStatus): PrismaStreamStatus {
+  switch (remote) {
+    case 'ACTIVE':
+      return 'ACTIVE';
+    case 'PAUSED':
+      return 'PAUSED';
+    case 'COMPLETED':
+      return 'COMPLETED';
+    case 'CANCELLED':
+      return 'CANCELLED';
+    default: {
+      const unexpected: never = remote;
+      throw new Error(`Unexpected remote stream status: ${String(unexpected)}`);
+    }
+  }
+}
 
 // Queue configuration
 // In production, use Redis connection string from env
@@ -56,11 +74,11 @@ async function processReconciliation(job: { data: { streamId: string } }) {
 
     // Get stream details from Streamflow
     const streamflowClient = createStreamflowClient({
-      apiBase: env.STREAMFLOW_API_BASE,
+      clusterUrl: env.SOLANA_CLUSTER_URL,
       cluster: env.SOLANA_CLUSTER,
     });
 
-    const streamflowDetails = await streamflowClient.getStream(stream.streamflowStreamId);
+    const streamflowDetails = await streamflowClient.getOne(stream.streamflowStreamId);
 
     // Check for anomalies
     const anomalies: string[] = [];
@@ -91,7 +109,7 @@ async function processReconciliation(job: { data: { streamId: string } }) {
     await db.stream.update({
       where: { id: streamId },
       data: {
-        status: streamflowDetails.status as any,
+        status: remoteStatusToDb(streamflowDetails.status),
         lastSyncedAt: new Date(),
       },
     });
@@ -129,7 +147,7 @@ async function processReconciliation(job: { data: { streamId: string } }) {
 /**
  * Get notification type based on anomaly
  */
-function getNotificationTypeForAnomaly(anomaly: string): string {
+function getNotificationTypeForAnomaly(anomaly: string): NotificationType {
   if (anomaly.includes('paused')) {
     return 'STREAM_UPDATED';
   }

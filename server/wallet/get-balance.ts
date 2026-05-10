@@ -35,12 +35,11 @@ export async function getSolBalances(addresses: string[]): Promise<Map<string, n
     const connection = new Connection(SOLANA_CLUSTER_URL, "confirmed");
     const publicKeys = addresses.map(addr => new PublicKey(addr));
     
-    // Fetch all balances in parallel
-    const balances = await connection.getMultipleAccountsBalances(publicKeys);
-    
+    const accounts = await connection.getMultipleAccountsInfo(publicKeys);
+
     const result = new Map<string, number>();
     addresses.forEach((address, index) => {
-      const lamports = balances[index] || 0;
+      const lamports = accounts[index]?.lamports ?? 0;
       result.set(address, lamports / 1_000_000_000);
     });
     

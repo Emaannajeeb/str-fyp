@@ -4,7 +4,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
-import { requireAuth } from '@/lib/auth';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { z } from 'zod';

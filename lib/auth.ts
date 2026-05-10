@@ -23,7 +23,7 @@ export interface Session {
  * @param request - Next.js request object
  * @returns Session object or null if not authenticated
  */
-export async function getSession(request?: NextRequest): Promise<Session | null> {
+export async function getSession(_request?: NextRequest): Promise<Session | null> {
   let session = await getSessionFromCookies();
 
   // If session expired, try to refresh

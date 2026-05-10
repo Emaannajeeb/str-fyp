@@ -61,9 +61,11 @@ export function verifyCsrfToken(request: NextRequest): boolean {
  * CSRF protection middleware
  * Wraps a route handler to add CSRF protection
  */
-export function withCsrfProtection<T extends (...args: any[]) => Promise<NextResponse>>(
-  handler: T
-): T {
+/** Wraps handlers while preserving arity (auth/sign-in stacks rate-limit → CSRF → handler). */
+export function withCsrfProtection<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- arity must match wrapped handlers (NextRequest + optional Session)
+  T extends (...args: any[]) => Promise<NextResponse>,
+>(handler: T): T {
   return (async (...args: Parameters<T>) => {
     const request = args[0] as NextRequest;
     

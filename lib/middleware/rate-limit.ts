@@ -92,7 +92,10 @@ class UpstashRateLimitStore implements RateLimitStore {
     this.redisToken = token;
   }
 
-  private async redisRequest(command: string, args: string[]): Promise<any> {
+  private async redisRequest(
+    command: string,
+    args: string[]
+  ): Promise<{ result?: string | number } & Record<string, unknown>> {
     const response = await fetch(`${this.redisUrl}/${command}/${args.join('/')}`, {
       headers: {
         Authorization: `Bearer ${this.redisToken}`,
@@ -108,7 +111,15 @@ class UpstashRateLimitStore implements RateLimitStore {
 
   async get(key: string): Promise<number | null> {
     const result = await this.redisRequest('get', [key]);
-    return result.result ? parseInt(result.result, 10) : null;
+    const raw = result.result;
+    if (raw === undefined || raw === null || raw === '') {
+      return null;
+    }
+    if (typeof raw === 'number') {
+      return Number.isNaN(raw) ? null : raw;
+    }
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? null : n;
   }
 
   async set(key: string, value: number, ttl: number): Promise<void> {
@@ -130,8 +141,19 @@ class UpstashRateLimitStore implements RateLimitStore {
       key,
       ttlSeconds.toString(),
     ]);
-    
-    return parseInt(result.result, 10);
+
+    const raw = result.result;
+    if (raw === undefined || raw === null) {
+      throw new Error('Unexpected Redis eval response: missing result');
+    }
+    if (typeof raw === 'number') {
+      return raw;
+    }
+    const n = parseInt(String(raw), 10);
+    if (Number.isNaN(n)) {
+      throw new Error('Unexpected Redis eval response: invalid counter');
+    }
+    return n;
   }
 }
 
@@ -164,8 +186,8 @@ export function rateLimit(options: RateLimitOptions) {
     windowMs,
     maxRequests,
     keyGenerator = defaultKeyGenerator,
-    skipSuccessfulRequests = false,
-    skipFailedRequests = false,
+    skipSuccessfulRequests: _skipSuccessfulRequests = false,
+    skipFailedRequests: _skipFailedRequests = false,
   } = options;
 
   return async (request: NextRequest, handler: (req: NextRequest) => Promise<NextResponse>) => {

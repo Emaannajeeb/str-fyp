@@ -12,7 +12,7 @@ const WALLET_ALLOW_MOCK = typeof process !== 'undefined'
 
 export default function ConnectWalletButton() {
   const {
-    providerId,
+    providerId: _providerId,
     connectedWallet,
     isConnecting,
     error,
@@ -55,7 +55,6 @@ export default function ConnectWalletButton() {
     try {
       // Try to detect Phantom's network by checking if it's connected
       // Note: Phantom doesn't expose network directly, so we check via RPC
-      const clusterUrl = process.env.NEXT_PUBLIC_SOLANA_CLUSTER_URL || 'https://api.devnet.solana.com';
       const expectedCluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || 'devnet';
       
       // We can't directly check Phantom's network, but we can show a warning
@@ -281,7 +280,7 @@ export default function ConnectWalletButton() {
                       >
                         Solflare Solana Snap
                       </a>
-                      . Regular MetaMask doesn't support Snaps yet - you need{' '}
+                      . Regular MetaMask does not support Snaps yet — you need{' '}
                       <a
                         href="https://metamask.io/flask/"
                         target="_blank"
@@ -399,14 +398,16 @@ export default function ConnectWalletButton() {
                           <p className="font-medium text-red-800">Option 1: Grant Permission in MetaMask</p>
                           <ol className="list-decimal list-inside space-y-1 ml-1 text-xs">
                             <li>Click the MetaMask Flask extension icon in your browser</li>
-                            <li>Click on "Solana Wallet" (the installed Snap)</li>
-                            <li>Scroll down to "Connected sites" section</li>
+                            <li>Click on &quot;Solana Wallet&quot; (the installed Snap)</li>
+                            <li>Scroll down to &quot;Connected sites&quot; section</li>
                             <li>Make sure <code className="bg-red-200 px-1 rounded">http://localhost:3000</code> is listed</li>
-                            <li>If not listed, click "Connect" or approve the connection</li>
+                            <li>If not listed, click &quot;Connect&quot; or approve the connection</li>
                             <li>Refresh this page and try connecting again</li>
                           </ol>
                           <p className="font-medium text-red-800 mt-2">Option 2: Reinstall Snap</p>
-                          <p className="text-xs ml-1">Use the "Reinstall Snap" button above to trigger permission prompts again</p>
+                          <p className="text-xs ml-1">
+                            Use the &quot;Reinstall Snap&quot; button above to trigger permission prompts again
+                          </p>
                         </div>
                       </div>
                     ) : null}

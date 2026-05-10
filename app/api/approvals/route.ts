@@ -4,8 +4,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
+import { ApprovalStatus } from '@prisma/client';
 import { db } from '@/server/db';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
+
+function parseApprovalStatus(value: string | null): ApprovalStatus | undefined {
+  if (!value) return undefined;
+  switch (value) {
+    case ApprovalStatus.PENDING:
+    case ApprovalStatus.APPROVED:
+    case ApprovalStatus.REJECTED:
+    case ApprovalStatus.CANCELLED:
+      return value;
+    default:
+      return undefined;
+  }
+}
 
 async function listApprovalsHandler(
   request: NextRequest,
@@ -18,14 +33,11 @@ async function listApprovalsHandler(
     const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 100);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
-    const where: {
-      organizationId: string;
-      status?: string;
-      subjectType?: string;
-    } = {
+    const where: Prisma.ApprovalWhereInput = {
       organizationId: session.organizationId,
     };
-    if (status) where.status = status;
+    const parsedStatus = parseApprovalStatus(status);
+    if (parsedStatus) where.status = parsedStatus;
     if (subjectType) where.subjectType = subjectType;
 
     const [approvals, total] = await Promise.all([

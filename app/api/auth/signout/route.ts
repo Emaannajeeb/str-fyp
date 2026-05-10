@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch {
     // Even if auth fails, try to destroy session
     await destroySession();
 

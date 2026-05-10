@@ -4,7 +4,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { setCsrfToken, verifyCsrfToken } from '@/lib/middleware/csrf';
 import { generateSecureToken } from '@/lib/crypto';
 
 const CSRF_COOKIE_NAME = 'csrf-token';

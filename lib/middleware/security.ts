@@ -31,7 +31,11 @@ export function withSecurity(
   handler: RouteHandler,
   options: SecurityOptions = {}
 ): RouteHandler {
-  const { rateLimit: rateLimitOption = 'standard', csrf = true, requireAuth = false } = options;
+  const {
+    rateLimit: rateLimitOption = 'standard',
+    csrf = true,
+    requireAuth: _requireAuth = false,
+  } = options;
 
   let securedHandler: RouteHandler = handler;
 

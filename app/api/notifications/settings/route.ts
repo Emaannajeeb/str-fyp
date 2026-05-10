@@ -87,10 +87,10 @@ async function updateSettingsHandler(
 }
 
 export const GET = withAuthAndRBAC(getSettingsHandler, {
-  permissions: ['VIEW_FINANCE_DASHBOARD'], // Or create a new permission
+  requiredPermissions: ['VIEW_FINANCE_DASHBOARD'],
 });
 
 export const POST = withAuthAndRBAC(updateSettingsHandler, {
-  permissions: ['VIEW_FINANCE_DASHBOARD'], // Or create a new permission
+  requiredPermissions: ['VIEW_FINANCE_DASHBOARD'],
 });
 

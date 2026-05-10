@@ -3,7 +3,6 @@
  * Type definitions for Streamflow SDK interactions
  */
 
-import type { BN } from '@streamflow/stream';
 import type { ConnectedWallet } from '@/lib/wallet/client';
 
 export type StreamStatus = 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'COMPLETED';

@@ -4,7 +4,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
-import { requireAuth } from '@/lib/auth';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 
 async function listWalletsHandler(

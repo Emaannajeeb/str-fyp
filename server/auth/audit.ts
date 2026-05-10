@@ -2,8 +2,13 @@
  * Audit logging utilities for authentication events
  */
 
-import { db } from '../db';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
+import { db } from '../db';
+
+function toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 export interface AuditLogData {
   organizationId: string;
@@ -46,8 +51,8 @@ export async function createAuditLog(data: AuditLogData): Promise<void> {
         action: data.action,
         entity: data.entity,
         entityId: data.entityId,
-        before: data.before ? (data.before as object) : null,
-        after: data.after ? (data.after as object) : null,
+        ...(data.before != null ? { before: toInputJsonValue(data.before) } : {}),
+        ...(data.after != null ? { after: toInputJsonValue(data.after) } : {}),
         hash,
         ip: data.ip || null,
         userAgent: data.userAgent || null,

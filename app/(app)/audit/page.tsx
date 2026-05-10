@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Download, FileText, Calendar, Filter, User, Search } from 'lucide-react';
+import { Download, FileText, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface AuditLog {

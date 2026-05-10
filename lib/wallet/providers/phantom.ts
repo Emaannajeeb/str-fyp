@@ -1,7 +1,7 @@
 'use client';
 
 import { PublicKey, Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
-import type { WalletAdapter } from '../client';
+import type { StreamflowAdapter, WalletAdapter } from '../client';
 
 // Get cluster URL from client-side env (must be prefixed with NEXT_PUBLIC_)
 const getClusterUrl = () => {
@@ -223,7 +223,7 @@ export class PhantomWalletAdapter implements WalletAdapter {
    * Get a Streamflow SDK-compatible adapter
    * This returns an object that implements SignerWalletAdapter interface
    */
-  getStreamflowAdapter() {
+  getStreamflowAdapter(): StreamflowAdapter {
     if (!this._publicKey) {
       throw new Error('Wallet not connected');
     }

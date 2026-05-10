@@ -9,7 +9,6 @@ import { env } from './env';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // 96 bits for GCM
 const TAG_LENGTH = 16; // 128 bits for authentication tag
-const SALT_LENGTH = 32;
 
 /**
  * Derive encryption key from ENCRYPTION_KEY_32B

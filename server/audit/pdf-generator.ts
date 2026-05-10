@@ -10,14 +10,32 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
-// Dynamic import for pdfmake (CommonJS module)
-let PdfPrinter: any;
-async function getPdfPrinter() {
-  if (!PdfPrinter) {
+interface PdfKitDocument {
+  on(event: 'data', listener: (chunk: Buffer) => void): void;
+  on(event: 'end', listener: () => void): void;
+  on(event: 'error', listener: (err: unknown) => void): void;
+  end(): void;
+}
+
+interface PdfPrinterInstance {
+  createPdfKitDocument(doc: TDocumentDefinitions): PdfKitDocument;
+}
+
+type PdfPrinterConstructor = new (fonts: ReturnType<typeof getFonts>) => PdfPrinterInstance;
+
+// Dynamic import for pdfmake (CommonJS / ESM interop)
+let cachedPdfPrinter: PdfPrinterConstructor | undefined;
+
+async function getPdfPrinter(): Promise<PdfPrinterConstructor> {
+  if (!cachedPdfPrinter) {
     const pdfmake = await import('pdfmake');
-    PdfPrinter = pdfmake.default || pdfmake;
+    const Candidate = pdfmake.default ?? pdfmake;
+    if (typeof Candidate !== 'function') {
+      throw new Error('pdfmake did not export a constructor');
+    }
+    cachedPdfPrinter = Candidate as PdfPrinterConstructor;
   }
-  return PdfPrinter;
+  return cachedPdfPrinter;
 }
 
 // Fonts configuration - using minimal fonts for server-side generation
@@ -77,7 +95,7 @@ export async function generateMonthlyReport(
   organizationId: string,
   periodStart: Date,
   periodEnd: Date,
-  createdBy: string
+  _createdBy: string
 ): Promise<{ filePath: string; fileName: string; fileSize: number; hash: string }> {
   // Fetch organization
   const organization = await db.organization.findUnique({
@@ -276,7 +294,20 @@ export async function generateMonthlyReport(
                   s.employeeName,
                   s.createdAt.toLocaleDateString(),
                 ])
-              : [[{ text: 'No streams found in this period', colSpan: 6, alignment: 'center' }, '', '', '', '', '']]),
+              : [
+                  [
+                    {
+                      text: 'No streams found in this period',
+                      colSpan: 6,
+                      alignment: 'center' as const,
+                    },
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                  ],
+                ]),
           ],
         },
         margin: [0, 0, 0, 20],
@@ -308,7 +339,19 @@ export async function generateMonthlyReport(
                   a.approverEmail || 'N/A',
                   a.approvedAt?.toLocaleDateString() || a.createdAt.toLocaleDateString(),
                 ])
-              : [[{ text: 'No approvals found in this period', colSpan: 5, alignment: 'center' }, '', '', '', '']]),
+              : [
+                  [
+                    {
+                      text: 'No approvals found in this period',
+                      colSpan: 5,
+                      alignment: 'center' as const,
+                    },
+                    '',
+                    '',
+                    '',
+                    '',
+                  ],
+                ]),
           ],
         },
         margin: [0, 0, 0, 20],
@@ -340,7 +383,19 @@ export async function generateMonthlyReport(
                   log.createdAt.toLocaleDateString(),
                   log.hash?.substring(0, 16) + '...' || 'N/A',
                 ])
-              : [[{ text: 'No audit logs found in this period', colSpan: 5, alignment: 'center' }, '', '', '', '']]),
+              : [
+                  [
+                    {
+                      text: 'No audit logs found in this period',
+                      colSpan: 5,
+                      alignment: 'center' as const,
+                    },
+                    '',
+                    '',
+                    '',
+                    '',
+                  ],
+                ]),
           ],
         },
         margin: [0, 0, 0, 20],
@@ -444,4 +499,3 @@ export async function generateMonthlyReport(
     hash,
   };
 }
-

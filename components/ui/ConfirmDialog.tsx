@@ -1,7 +1,6 @@
 'use client';
 
 import { AlertTriangle, X } from 'lucide-react';
-import { ReactNode } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;

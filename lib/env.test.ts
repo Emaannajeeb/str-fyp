@@ -66,8 +66,6 @@ describe('env validation', () => {
       'postgresql://localhost:5432/test',
     ];
 
-    const invalidUrls = ['not-a-url', 'ftp://invalid'];
-
     validUrls.forEach((url) => {
       try {
         new URL(url);

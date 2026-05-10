@@ -1,7 +1,7 @@
 /**
  * Wallet adapter bridge for Streamflow SDK
  * Converts wallet addresses to SDK-compatible format
- * 
+ *
  * Note: For server-side operations, this creates a minimal adapter.
  * In production, you would use a server-side keypair or require
  * client-side transaction signing.
@@ -9,27 +9,31 @@
 
 import type { ConnectedWallet } from '@/lib/wallet/client';
 import { PublicKey, Keypair, Transaction, VersionedTransaction } from '@solana/web3.js';
-import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
-
+import bs58 from 'bs58';
+import nacl from 'tweetnacl';
 /**
  * Create a server-side wallet adapter from a keypair
  * Used for server-side operations when you have a private key
  * Returns a Keypair directly which the SDK accepts
  */
+/** Ed25519 detached signature for arbitrary bytes (Streamflow server wallet). */
+export function signDetachedWithKeypair(keypair: Keypair, message: Uint8Array): Uint8Array {
+  return nacl.sign.detached(message, keypair.secretKey);
+}
+
 export function createServerWalletAdapter(privateKey?: string): Keypair {
   let keypair: Keypair;
-  
+
   if (privateKey) {
     // Use provided private key (base58 or array format)
     try {
-      const keyBytes = typeof privateKey === 'string' 
-        ? Uint8Array.from(JSON.parse(privateKey))
-        : new Uint8Array(privateKey);
+      const keyBytes =
+        typeof privateKey === 'string'
+          ? Uint8Array.from(JSON.parse(privateKey))
+          : new Uint8Array(privateKey);
       keypair = Keypair.fromSecretKey(keyBytes);
     } catch {
-      // Try as base58 string
-      const { decode } = require('bs58');
-      keypair = Keypair.fromSecretKey(decode(privateKey));
+      keypair = Keypair.fromSecretKey(bs58.decode(privateKey));
     }
   } else {
     // Generate a new keypair (for development/testing only)
@@ -49,14 +53,12 @@ export function createServerWalletAdapter(privateKey?: string): Keypair {
 export function createStreamflowWalletAdapter(wallet: ConnectedWallet) {
   return {
     publicKey: new PublicKey(wallet.address),
-    
-    async signTransaction<T extends Transaction | VersionedTransaction>(
-      tx: T
-    ): Promise<T> {
+
+    async signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T> {
       // For Phantom and other client-side wallets, we need to sign the transaction
       // The Streamflow SDK builds the transaction and expects us to sign it
       // Then the SDK will send it
-      
+
       // Check if we're in a browser environment and have access to Phantom
       if (typeof window !== 'undefined' && window.solana?.isPhantom) {
         try {
@@ -73,11 +75,11 @@ export function createStreamflowWalletAdapter(wallet: ConnectedWallet) {
           return tx;
         }
       }
-      
+
       // For other wallet types or server-side, we need to handle differently
       // If the wallet has a way to just sign (not send), use that
       // Otherwise, we'll need to work with what we have
-      
+
       // Try to sign via the wallet's interface
       // Note: This might send the transaction, which is not ideal
       // But for now, this is the best we can do without wallet-specific logic
@@ -92,26 +94,33 @@ export function createStreamflowWalletAdapter(wallet: ConnectedWallet) {
         throw new Error(`Failed to sign transaction: ${errorMessage}`);
       }
     },
-    
+
     async signAllTransactions<T extends Transaction | VersionedTransaction>(
       txs: T[]
     ): Promise<T[]> {
       // For Phantom, use signAllTransactions if available
-      if (typeof window !== 'undefined' && window.solana?.isPhantom && window.solana.signAllTransactions) {
+      if (
+        typeof window !== 'undefined' &&
+        window.solana?.isPhantom &&
+        window.solana.signAllTransactions
+      ) {
         try {
           const signed = await window.solana.signAllTransactions(txs);
           return signed as T[];
         } catch (error) {
-          console.warn('[Streamflow] Phantom signAllTransactions failed, signing individually:', error);
+          console.warn(
+            '[Streamflow] Phantom signAllTransactions failed, signing individually:',
+            error
+          );
           // Fallback to individual signing
           return Promise.all(txs.map((tx) => this.signTransaction(tx)));
         }
       }
-      
+
       // For other wallets, sign individually
       return Promise.all(txs.map((tx) => this.signTransaction(tx)));
     },
-    
+
     async signMessage(message: Uint8Array): Promise<Uint8Array> {
       return wallet.signMessage(message);
     },
@@ -122,14 +131,14 @@ export function createStreamflowWalletAdapter(wallet: ConnectedWallet) {
  * Get server-side wallet adapter from environment or wallet address
  * For server-side operations, we use a keypair from env or generate one
  */
-export function getServerWalletAdapter(address?: string) {
+export function getServerWalletAdapter() {
   // Try to get private key from environment
   const privateKey = process.env.STREAMFLOW_SENDER_PRIVATE_KEY;
-  
+
   if (privateKey) {
     return createServerWalletAdapter(privateKey);
   }
-  
+
   // If no private key, try to use address (will need keypair lookup)
   // For now, generate a new one (development only)
   if (process.env.NODE_ENV === 'production') {
@@ -137,11 +146,9 @@ export function getServerWalletAdapter(address?: string) {
       'STREAMFLOW_SENDER_PRIVATE_KEY must be set in production for server-side operations'
     );
   }
-  
+
   console.warn(
     '[Streamflow] No STREAMFLOW_SENDER_PRIVATE_KEY found, using generated keypair (development only)'
   );
   return createServerWalletAdapter();
 }
-
-

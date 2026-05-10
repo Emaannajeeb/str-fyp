@@ -10,6 +10,7 @@ import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
 import { createStreamflowClient } from '@/server/streamflow';
 import { env } from '@/lib/env';
 import { z } from 'zod';
+import { Transaction, VersionedTransaction } from '@solana/web3.js';
 
 const cancelStreamSchema = z.object({
   streamId: z.string().min(1, 'Stream ID is required'),
@@ -63,20 +64,25 @@ async function cancelStreamHandler(
     // NOTE: This requires STREAMFLOW_SENDER_PRIVATE_KEY to be set in env
     // For production with Phantom wallets, this should be refactored to use client-side signing
     // similar to stream creation
-    const { getServerWalletAdapter } = await import('@/server/streamflow/wallet-adapter');
+    const { getServerWalletAdapter, signDetachedWithKeypair } = await import(
+      '@/server/streamflow/wallet-adapter'
+    );
     const wallet = getServerWalletAdapter();
-    
+
     // Create a ConnectedWallet wrapper for the server adapter
     const serverWallet = {
       address: wallet.publicKey.toString(),
-      signMessage: async (msg: Uint8Array) => {
-        const sig = wallet.sign(msg);
-        return sig.signature;
-      },
+      signMessage: async (msg: Uint8Array) => signDetachedWithKeypair(wallet, msg),
       signAndSendTransaction: async (tx: unknown) => {
-        // Server-side: sign transaction (Streamflow SDK will send it)
-        await wallet.signTransaction(tx as any);
-        return 'server-tx-id';
+        if (tx instanceof Transaction) {
+          tx.partialSign(wallet);
+          return 'server-tx-id';
+        }
+        if (tx instanceof VersionedTransaction) {
+          tx.sign([wallet]);
+          return 'server-tx-id';
+        }
+        throw new Error('Invalid transaction type for signing');
       },
       disconnect: async () => {},
     };

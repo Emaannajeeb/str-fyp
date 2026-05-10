@@ -275,7 +275,10 @@ export default function ContractsPage() {
                 <select
                   id="rateType"
                   value={rateType}
-                  onChange={(e) => setRateType(e.target.value as any)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === 'SALARY' || v === 'HOURLY' || v === 'MILESTONE') setRateType(v);
+                  }}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
                 >
                   <option value="SALARY">Salary</option>
@@ -291,7 +294,16 @@ export default function ContractsPage() {
                 <select
                   id="period"
                   value={period}
-                  onChange={(e) => setPeriod(e.target.value as any)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (
+                      v === 'MONTHLY' ||
+                      v === 'WEEKLY' ||
+                      v === 'BIWEEKLY' ||
+                      v === 'ONE_TIME'
+                    )
+                      setPeriod(v);
+                  }}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
                 >
                   <option value="MONTHLY">Monthly</option>

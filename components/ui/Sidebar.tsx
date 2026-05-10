@@ -10,15 +10,12 @@ import {
   DollarSign,
   CheckCircle2,
   Shield,
-  Settings,
-  LogOut,
   Menu,
   X,
   TrendingUp,
   ClipboardList,
 } from 'lucide-react';
 import { useState } from 'react';
-import { getSession } from '@/lib/auth';
 
 interface NavItem {
   name: string;

@@ -24,7 +24,7 @@ async function listContractsHandler(
       active: true,
     };
 
-    let contracts: Awaited<ReturnType<typeof db.contract.findMany>>;
+    let contracts;
 
     if (eligibleForStream) {
       contracts = await db.contract.findMany({

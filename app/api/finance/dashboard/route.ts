@@ -61,8 +61,8 @@ async function getDashboardMetricsHandler(
         monthlyAmount = Number(contract.amountPerPeriod) * 4.33; // Average weeks per month
       } else if (contract.period === 'BIWEEKLY') {
         monthlyAmount = Number(contract.amountPerPeriod) * 2.17; // Average biweeks per month
-      } else if (contract.period === 'DAILY') {
-        monthlyAmount = Number(contract.amountPerPeriod) * 30; // Average days per month
+      } else if (contract.period === 'ONE_TIME') {
+        monthlyAmount = 0;
       }
 
       monthlyPayout += monthlyAmount;

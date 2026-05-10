@@ -301,7 +301,7 @@ describe('RBAC', () => {
           'test context',
           { ip: '127.0.0.1', userAgent: 'test-agent' }
         );
-      } catch (error) {
+      } catch {
         // Expected to throw
       }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2, X, XCircle, Info, AlertTriangle } from 'lucide-react';
-import { useToastStore } from '@/lib/store/toast';
+import { useToastStore, type Toast } from '@/lib/store/toast';
 
 const toastIcons = {
   success: CheckCircle2,
@@ -24,7 +24,7 @@ export function ToastContainer() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((toast) => {
+      {toasts.map((toast: Toast) => {
         const Icon = toastIcons[toast.type];
         return (
           <div

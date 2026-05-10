@@ -29,6 +29,8 @@ describe('withAuthAndRBAC', () => {
     }),
   } as unknown as NextRequest;
 
+  const emptyRouteContext = { params: Promise.resolve({}) };
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -44,11 +46,11 @@ describe('withAuthAndRBAC', () => {
       requiredPermissions: ['VIEW_FINANCE_DASHBOARD'],
     });
 
-    const response = await protectedHandler(mockRequest);
+    const response = await protectedHandler(mockRequest, emptyRouteContext);
     const data = await response.json();
 
     expect(data.success).toBe(true);
-    expect(handler).toHaveBeenCalledWith(mockRequest, mockSession, undefined);
+    expect(handler).toHaveBeenCalledWith(mockRequest, mockSession, { params: {} });
   });
 
   it('should deny access when user lacks required permission', async () => {
@@ -63,7 +65,7 @@ describe('withAuthAndRBAC', () => {
       requiredPermissions: ['VIEW_FINANCE_DASHBOARD'],
     });
 
-    const response = await protectedHandler(mockRequest);
+    const response = await protectedHandler(mockRequest, emptyRouteContext);
     const data = await response.json();
 
     expect(response.status).toBe(403);
@@ -82,7 +84,7 @@ describe('withAuthAndRBAC', () => {
       requireAll: true,
     });
 
-    const response = await protectedHandler(mockRequest);
+    const response = await protectedHandler(mockRequest, emptyRouteContext);
     const data = await response.json();
 
     expect(data.success).toBe(true);
@@ -112,7 +114,7 @@ describe('withAuthAndRBAC', () => {
       requiredPermissions: ['VIEW_FINANCE_DASHBOARD'],
     });
 
-    const response = await protectedHandler(mockRequest);
+    const response = await protectedHandler(mockRequest, emptyRouteContext);
     const data = await response.json();
 
     expect(response.status).toBe(401);
@@ -133,7 +135,7 @@ describe('withAuthAndRBAC', () => {
       errorMessage: 'Custom error message',
     });
 
-    const response = await protectedHandler(mockRequest);
+    const response = await protectedHandler(mockRequest, emptyRouteContext);
     const data = await response.json();
 
     expect(response.status).toBe(403);

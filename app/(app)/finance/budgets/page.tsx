@@ -49,7 +49,7 @@ export default function BudgetsPage() {
 
   const loadData = async () => {
     try {
-      const [budgetsRes, deptsRes] = await Promise.all([
+      const [budgetsRes] = await Promise.all([
         fetch('/api/budgets'),
         fetch('/api/departments').catch(() => null), // Departments API to be created
       ]);

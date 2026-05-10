@@ -30,11 +30,6 @@ export default function ApprovalsPage() {
   // Request form state
   const [subjectType, setSubjectType] = useState<'CONTRACT' | 'STREAM'>('CONTRACT');
   const [subjectId, setSubjectId] = useState('');
-
-  useEffect(() => {
-    loadApprovals();
-  }, [statusFilter]);
-
   const [statusFilter, setStatusFilter] = useState<string>('PENDING');
 
   const loadApprovals = async () => {
@@ -53,6 +48,10 @@ export default function ApprovalsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadApprovals();
+  }, [statusFilter]);
 
   const handleRequestApproval = async (e: React.FormEvent) => {
     e.preventDefault();

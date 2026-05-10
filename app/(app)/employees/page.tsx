@@ -21,7 +21,7 @@ interface Employee {
 
 export default function EmployeesPage() {
   const router = useRouter();
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employees, _setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -148,7 +148,16 @@ export default function EmployeesPage() {
               <select
                 id="status"
                 value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (
+                    v === 'ACTIVE' ||
+                    v === 'INACTIVE' ||
+                    v === 'TERMINATED' ||
+                    v === 'ON_LEAVE'
+                  )
+                    setStatus(v);
+                }}
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
               >
                 <option value="ACTIVE">Active</option>

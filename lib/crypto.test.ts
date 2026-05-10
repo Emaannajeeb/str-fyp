@@ -2,7 +2,7 @@
  * Unit tests for crypto helper
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // Mock the env module before importing crypto
 vi.mock('./env', () => {

@@ -1,8 +1,18 @@
 import type { NextConfig } from 'next';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
+
+  /** Fixes tracing root when a parent directory has another lockfile (see Next.js workspace warning). */
+  outputFileTracingRoot: path.join(__dirname),
+
+  /** Heavy SDKs that ship browser/React-adjacent code; bundling them breaks server RSC/hybrid imports (e.g. createContext). */
+  serverExternalPackages: ['@streamflow/stream', '@streamflow/common'],
   
   experimental: {
     serverActions: {

@@ -10,12 +10,22 @@ import { requireAuth, Session } from '@/lib/auth';
 import { assertPermission, PermissionDeniedError } from '@/lib/rbac';
 import { PermissionKey } from '@/types/rbac';
 
+/** Resolved dynamic route params (after awaiting `context.params`) */
+export type RouteParams = Record<string, string | string[] | undefined>;
+
 /**
- * Request handler type for Next.js API routes
+ * Next.js 15 App Router passes `params` as a Promise on the route context.
+ */
+export type AppRouteHandlerContext = {
+  params: Promise<RouteParams>;
+};
+
+/**
+ * Exported route handler shape expected by Next.js for API routes
  */
 export type ApiHandler = (
   request: NextRequest,
-  context?: { params?: Record<string, string> }
+  context: AppRouteHandlerContext
 ) => Promise<NextResponse>;
 
 /**
@@ -72,10 +82,14 @@ function getRequestMetadata(request: NextRequest): {
  * ```
  */
 export function withAuthAndRBAC(
-  handler: (request: NextRequest, session: Session, context?: { params?: Record<string, string> }) => Promise<NextResponse>,
+  handler: (
+    request: NextRequest,
+    session: Session,
+    context?: { params?: RouteParams }
+  ) => Promise<NextResponse>,
   options: RBACGuardOptions
 ): ApiHandler {
-  return async (request: NextRequest, context?: { params?: Record<string, string> }) => {
+  return async (request: NextRequest, routeContext: AppRouteHandlerContext) => {
     try {
       // 1. Require authentication
       const session = await requireAuth(request);
@@ -98,7 +112,8 @@ export function withAuthAndRBAC(
       }
 
       // 2. Check permissions (skip if no permissions required)
-      const { requiredPermissions, requireAll = false, errorMessage } = options;
+      const { requiredPermissions, requireAll = false, errorMessage: _errorMessage } =
+        options;
       const permissionKeys = Array.isArray(requiredPermissions)
         ? requiredPermissions
         : [requiredPermissions];
@@ -143,8 +158,9 @@ export function withAuthAndRBAC(
         }
       }
 
-      // 3. Call the handler with session
-      return await handler(request, session, context);
+      // 3. Call the handler with session (resolve params for handlers that read dynamic segments)
+      const params = await routeContext.params;
+      return await handler(request, session, { params });
     } catch (error) {
       // Handle permission denied errors
       if (error instanceof PermissionDeniedError) {

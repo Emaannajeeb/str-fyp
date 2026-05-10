@@ -32,6 +32,7 @@
     "@streamflow/stream": "^9.3.1",
     "@tanstack/react-query": "^5.62.0",
     "@types/pdfmake": "^0.2.12",
+    "bs58": "^6.0.0",
     "bullmq": "^5.20.0",
     "date-fns": "^4.1.0",
     "dotenv-safe": "^9.1.0",
@@ -44,6 +45,7 @@
     "react-dom": "^19.0.0",
     "recharts": "^3.4.1",
     "tsx": "^4.19.2",
+    "tweetnacl": "^1.0.3",
     "zod": "^3.23.8",
     "zustand": "^5.0.1"
   },
@@ -52,6 +54,7 @@
     "@commitlint/config-conventional": "^19.7.0",
     "@eslint/eslintrc": "^3.3.5",
     "@playwright/test": "^1.56.1",
+    "@types/dotenv-safe": "^9.1.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.2",

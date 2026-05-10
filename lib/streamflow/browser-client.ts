@@ -58,7 +58,7 @@ export async function createStreamInBrowser(
         ? ICluster.Testnet
         : ICluster.Devnet;
 
-  const client = new GenericStreamClient<IChain.Solana>({
+  const client = new GenericStreamClient({
     chain: IChain.Solana,
     clusterUrl,
     cluster: clusterEnum,
@@ -122,7 +122,7 @@ export async function withdrawStreamInBrowser(
         ? ICluster.Testnet
         : ICluster.Devnet;
 
-  const client = new GenericStreamClient<IChain.Solana>({
+  const client = new GenericStreamClient({
     chain: IChain.Solana,
     clusterUrl: getClusterUrl(),
     cluster: clusterEnum,
