@@ -12,13 +12,14 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
 
 export async function GET(request: NextRequest) {
+  const origin = request.nextUrl.origin;
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state'); // optional invite code
   const errorParam = searchParams.get('error');
 
-  const signInUrl = new URL('/signin', env.APP_BASE_URL);
-  const appUrl = new URL('/settings/wallets', env.APP_BASE_URL);
+  const signInUrl = new URL('/signin', origin);
+  const appUrl = new URL('/settings/wallets', origin);
 
   if (errorParam) {
     signInUrl.searchParams.set(
@@ -38,7 +39,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  const redirectUri = new URL('/api/auth/google/callback', env.APP_BASE_URL).toString();
+  // Must match the redirect_uri used in /api/auth/google (same request host as the browser).
+  const redirectUri = new URL('/api/auth/google/callback', origin).toString();
 
   try {
     const tokenRes = await fetch(TOKEN_URL, {
@@ -175,15 +177,20 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(signInUrl);
       }
       const employeeRole = await db.role.findUnique({ where: { key: 'EMPLOYEE' } });
-      if (employeeRole) {
-        await db.userRole.create({
-          data: {
-            userId: user.id,
-            organizationId: org.id,
-            roleId: employeeRole.id,
-          },
-        });
+      if (!employeeRole) {
+        signInUrl.searchParams.set(
+          'error',
+          'Sign-in is not available yet. Run database seed or contact support.'
+        );
+        return NextResponse.redirect(signInUrl);
       }
+      await db.userRole.create({
+        data: {
+          userId: user.id,
+          organizationId: org.id,
+          roleId: employeeRole.id,
+        },
+      });
       organizationId = org.id;
     } else {
       organizationId = userRole.organizationId;

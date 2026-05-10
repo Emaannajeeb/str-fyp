@@ -4,11 +4,9 @@ import { ToastContainerWrapper } from '@/components/ui/ToastContainerWrapper';
 import { Sidebar } from '@/components/ui/Sidebar';
 import { Header } from '@/components/ui/Header';
 
-export default async function AppLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const dynamic = 'force-dynamic';
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
 
   if (!session) {
@@ -21,9 +19,7 @@ export default async function AppLayout({
       <div className="lg:pl-72">
         <Header />
         <main className="py-8">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            {children}
-          </div>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">{children}</div>
         </main>
       </div>
       <ToastContainerWrapper />
