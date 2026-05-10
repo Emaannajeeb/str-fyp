@@ -5,6 +5,7 @@
 
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import type { NextResponse } from 'next/server';
 import { db } from '../db';
 import { env } from '@/lib/env';
 import type { Session } from '@/lib/auth';
@@ -14,6 +15,38 @@ const SESSION_MAX_AGE = 60 * 60 * 24; // 24 hours in seconds
 const REFRESH_COOKIE_NAME = 'refresh_token';
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 
+function sessionCookieOptions(): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'lax';
+  maxAge: number;
+  path: string;
+} {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: SESSION_MAX_AGE,
+    path: '/',
+  };
+}
+
+function refreshCookieOptions(): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'lax';
+  maxAge: number;
+  path: string;
+} {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: REFRESH_MAX_AGE,
+    path: '/',
+  };
+}
+
 // Get JWT secret key
 function getJWTSecret(): Uint8Array {
   const secret = env.JWT_SECRET;
@@ -21,16 +54,13 @@ function getJWTSecret(): Uint8Array {
 }
 
 /**
- * Create a session for a user
- * @param userId - User ID
- * @param organizationId - Organization ID
- * @returns Session token and refresh token
+ * Issue JWT session + refresh tokens after validating org membership.
+ * Does not set cookies (use createSession or attachSessionToResponse).
  */
-export async function createSession(
+export async function issueSessionTokens(
   userId: string,
   organizationId: string
 ): Promise<{ sessionToken: string; refreshToken: string }> {
-  // Get user details for session
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { email: true, name: true },
@@ -40,7 +70,6 @@ export async function createSession(
     throw new Error('User not found');
   }
 
-  // Verify user has access to organization
   const userRole = await db.userRole.findFirst({
     where: {
       userId,
@@ -55,7 +84,6 @@ export async function createSession(
   const secret = getJWTSecret();
   const now = Math.floor(Date.now() / 1000);
 
-  // Create session token (short-lived)
   const sessionToken = await new SignJWT({
     userId,
     organizationId,
@@ -69,7 +97,6 @@ export async function createSession(
     .setSubject(userId)
     .sign(secret);
 
-  // Create refresh token (long-lived)
   const refreshToken = await new SignJWT({
     userId,
     organizationId,
@@ -81,25 +108,38 @@ export async function createSession(
     .setSubject(userId)
     .sign(secret);
 
-  // Set cookies
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: SESSION_MAX_AGE,
-    path: '/',
-  });
-
-  cookieStore.set(REFRESH_COOKIE_NAME, refreshToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: REFRESH_MAX_AGE,
-    path: '/',
-  });
-
   return { sessionToken, refreshToken };
+}
+
+/**
+ * Attach session cookies to a Route Handler response (e.g. OAuth redirect).
+ * Required because cookies() + NextResponse.redirect() may not merge Set-Cookie reliably.
+ */
+export function attachSessionToResponse(
+  response: NextResponse,
+  tokens: { sessionToken: string; refreshToken: string }
+): void {
+  response.cookies.set(SESSION_COOKIE_NAME, tokens.sessionToken, sessionCookieOptions());
+  response.cookies.set(REFRESH_COOKIE_NAME, tokens.refreshToken, refreshCookieOptions());
+}
+
+/**
+ * Create a session for a user
+ * @param userId - User ID
+ * @param organizationId - Organization ID
+ * @returns Session token and refresh token
+ */
+export async function createSession(
+  userId: string,
+  organizationId: string
+): Promise<{ sessionToken: string; refreshToken: string }> {
+  const tokens = await issueSessionTokens(userId, organizationId);
+
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, tokens.sessionToken, sessionCookieOptions());
+  cookieStore.set(REFRESH_COOKIE_NAME, tokens.refreshToken, refreshCookieOptions());
+
+  return tokens;
 }
 
 /**
@@ -128,7 +168,7 @@ export async function getSession(): Promise<Session | null> {
       email: payload.email as string | undefined,
       name: payload.name as string | undefined,
     };
-  } catch (error) {
+  } catch {
     // Token invalid or expired
     return null;
   }
@@ -183,16 +223,10 @@ export async function refreshSession(): Promise<string | null> {
       .sign(secret);
 
     // Update session cookie
-    cookieStore.set(SESSION_COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: SESSION_MAX_AGE,
-      path: '/',
-    });
+    cookieStore.set(SESSION_COOKIE_NAME, sessionToken, sessionCookieOptions());
 
     return sessionToken;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -205,4 +239,3 @@ export async function destroySession(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE_NAME);
   cookieStore.delete(REFRESH_COOKIE_NAME);
 }
-

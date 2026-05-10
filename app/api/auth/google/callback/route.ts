@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
-import { createSession } from '@/server/auth/session';
+import { attachSessionToResponse, issueSessionTokens } from '@/server/auth/session';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
 import { env } from '@/lib/env';
 
@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
         data: { usedById: user.id, usedAt: new Date() },
       });
 
-      await createSession(user.id, invite.organizationId);
+      const inviteTokens = await issueSessionTokens(user.id, invite.organizationId);
       await createAuditLog({
         organizationId: invite.organizationId,
         actorId: user.id,
@@ -143,7 +143,9 @@ export async function GET(request: NextRequest) {
         ...metadata,
       });
 
-      return NextResponse.redirect(appUrl);
+      const inviteSuccess = NextResponse.redirect(appUrl);
+      attachSessionToResponse(inviteSuccess, inviteTokens);
+      return inviteSuccess;
     }
 
     // No invite: find or create user and use first org or default org
@@ -183,12 +185,11 @@ export async function GET(request: NextRequest) {
         });
       }
       organizationId = org.id;
-      await createSession(user.id, org.id);
     } else {
       organizationId = userRole.organizationId;
-      await createSession(user.id, userRole.organizationId);
     }
 
+    const oauthTokens = await issueSessionTokens(user.id, organizationId);
     await createAuditLog({
       organizationId,
       actorId: user.id,
@@ -199,7 +200,9 @@ export async function GET(request: NextRequest) {
       ...metadata,
     });
 
-    return NextResponse.redirect(appUrl);
+    const oauthSuccess = NextResponse.redirect(appUrl);
+    attachSessionToResponse(oauthSuccess, oauthTokens);
+    return oauthSuccess;
   } catch (err) {
     console.error('Google callback error:', err);
     signInUrl.searchParams.set('error', 'Sign-in failed');
