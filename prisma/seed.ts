@@ -162,12 +162,14 @@ async function main() {
     ],
     HR: [
       'MANAGE_EMPLOYEES',
+      'VIEW_FINANCE_DASHBOARD',
       // Legacy permissions
       'VIEW_BUDGET',
       'VIEW_AUDIT_LOG',
     ],
     EMPLOYEE: [
       'VIEW_SELF_STREAMS',
+      'VIEW_FINANCE_DASHBOARD',
       // Legacy permissions
       'VIEW_BUDGET',
     ],
@@ -372,9 +374,7 @@ async function main() {
   console.log(`- Permissions: ${createdPermissions.length}`);
   console.log(`\n📋 Users created:`);
   allUsers.forEach((user) => {
-    const roles = user.userRoles
-      .map((ur) => `${ur.role.key}@${ur.organization.slug}`)
-      .join(', ');
+    const roles = user.userRoles.map((ur) => `${ur.role.key}@${ur.organization.slug}`).join(', ');
     console.log(`  - ${user.email} (${user.name || 'No name'}) [${roles || 'No roles'}]`);
   });
   console.log(`\n- System Admin: ${sysAdmin.email} (SYS_ADMIN - Full Control)`);
@@ -392,4 +392,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

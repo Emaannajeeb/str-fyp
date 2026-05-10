@@ -6,7 +6,15 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard } from '@/components/ui/StatCard';
 import { KPIGrid } from '@/components/ui/KPIGrid';
 import { CardSkeleton } from '@/components/ui/SkeletonLoader';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 import { useWalletStore } from '@/lib/wallet/store';
 
 interface DashboardMetrics {
@@ -40,14 +48,24 @@ export default function FinanceDashboardPage() {
 
     try {
       const response = await fetch('/api/finance/dashboard');
-      
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch dashboard data' }));
-        throw new Error(errorData.error || errorData.message || 'Failed to fetch dashboard data');
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: 'Failed to fetch dashboard data' }));
+        let message =
+          (typeof errorData.error === 'string' && errorData.error) ||
+          (typeof errorData.message === 'string' && errorData.message) ||
+          'Failed to fetch dashboard data';
+        if (response.status === 403) {
+          message =
+            'Your role does not include finance dashboard access. Ask an administrator to assign a role with View Finance Dashboard permission.';
+        }
+        throw new Error(message);
       }
 
       const data = await response.json();
-      
+
       if (data.success) {
         setMetrics(data.metrics);
         setBurnRateData(data.burnRateData || []);
@@ -57,7 +75,7 @@ export default function FinanceDashboardPage() {
     } catch (err) {
       console.error('Error loading dashboard data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
-      
+
       // Set empty metrics on error
       setMetrics({
         activeStreams: 0,
@@ -76,7 +94,10 @@ export default function FinanceDashboardPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
-        <PageHeader title="Finance Dashboard" description="Overview of payroll streams and budgets" />
+        <PageHeader
+          title="Finance Dashboard"
+          description="Overview of payroll streams and budgets"
+        />
         <KPIGrid>
           <CardSkeleton />
           <CardSkeleton />
@@ -94,7 +115,10 @@ export default function FinanceDashboardPage() {
   if (!metrics) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
-        <PageHeader title="Finance Dashboard" description="Overview of payroll streams and budgets" />
+        <PageHeader
+          title="Finance Dashboard"
+          description="Overview of payroll streams and budgets"
+        />
         <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 text-gray-600">
             <AlertCircle className="h-5 w-5" />
@@ -108,13 +132,16 @@ export default function FinanceDashboardPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
-        <PageHeader title="Finance Dashboard" description="Overview of payroll streams and budgets" />
+        <PageHeader
+          title="Finance Dashboard"
+          description="Overview of payroll streams and budgets"
+        />
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 shadow-sm">
           <div className="flex items-center gap-2 text-red-800">
             <AlertCircle className="h-5 w-5" />
             <div>
               <p className="font-medium">Error loading dashboard</p>
-              <p className="text-sm text-red-600 mt-1">{error}</p>
+              <p className="mt-1 text-sm text-red-600">{error}</p>
               <button
                 onClick={loadDashboardData}
                 className="mt-3 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
@@ -128,8 +155,12 @@ export default function FinanceDashboardPage() {
     );
   }
 
-  const burnPercentage = ((parseFloat(metrics.burnRate) / parseFloat(metrics.capAmount)) * 100).toFixed(1);
-  const burnTrend = parseFloat(burnPercentage) > 80 ? { value: 'High usage', isPositive: false } : undefined;
+  const burnPercentage = (
+    (parseFloat(metrics.burnRate) / parseFloat(metrics.capAmount)) *
+    100
+  ).toFixed(1);
+  const burnTrend =
+    parseFloat(burnPercentage) > 80 ? { value: 'High usage', isPositive: false } : undefined;
 
   return (
     <div>
@@ -156,12 +187,7 @@ export default function FinanceDashboardPage() {
           icon={DollarSign}
           iconColor="blue"
         />
-        <StatCard
-          label="Paused"
-          value={metrics.pausedStreams}
-          icon={Pause}
-          iconColor="yellow"
-        />
+        <StatCard label="Paused" value={metrics.pausedStreams} icon={Pause} iconColor="yellow" />
         <StatCard
           label="Upcoming Starts"
           value={metrics.upcomingStarts}
