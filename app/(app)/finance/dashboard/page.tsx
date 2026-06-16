@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Play, Pause, Calendar, DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard } from '@/components/ui/StatCard';
@@ -32,10 +33,12 @@ interface BurnRateData {
 }
 
 export default function FinanceDashboardPage() {
+  const router = useRouter();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [burnRateData, setBurnRateData] = useState<BurnRateData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
   const { connectedWallet } = useWalletStore();
 
   useEffect(() => {
@@ -53,14 +56,15 @@ export default function FinanceDashboardPage() {
         const errorData = await response
           .json()
           .catch(() => ({ error: 'Failed to fetch dashboard data' }));
-        let message =
+        if (response.status === 403) {
+          setRedirecting(true);
+          router.replace('/me');
+          return;
+        }
+        const message =
           (typeof errorData.error === 'string' && errorData.error) ||
           (typeof errorData.message === 'string' && errorData.message) ||
           'Failed to fetch dashboard data';
-        if (response.status === 403) {
-          message =
-            'Your role does not include finance dashboard access. Ask an administrator to assign a role with View Finance Dashboard permission.';
-        }
         throw new Error(message);
       }
 
@@ -90,6 +94,17 @@ export default function FinanceDashboardPage() {
       setLoading(false);
     }
   };
+
+  if (redirecting) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <PageHeader title="Finance Dashboard" description="Redirecting to your dashboard..." />
+        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-gray-600 shadow-sm">
+          Redirecting to your dashboard...
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

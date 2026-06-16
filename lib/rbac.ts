@@ -37,19 +37,8 @@ export async function getUserPermissions(
   userId: string,
   organizationId: string
 ): Promise<PermissionKey[]> {
-  // Verify organization exists first
-  const organization = await db.organization.findUnique({
-    where: { id: organizationId },
-    select: { id: true },
-  });
-
-  // If organization doesn't exist, return empty permissions
-  if (!organization) {
-    console.warn(`Organization ${organizationId} does not exist for user ${userId}`);
-    return [];
-  }
-
-  // Get all user roles for this organization
+  // A single query: fetch the user's roles + permissions for this org.
+  // If the org/user is invalid, this returns no rows -> empty permissions (deny).
   const userRoles = await db.userRole.findMany({
     where: {
       userId,
@@ -231,4 +220,3 @@ export async function hasAllPermissions(
   const userPermissions = await getUserPermissions(userId, organizationId);
   return permissionKeys.every((key) => userPermissions.includes(key));
 }
-

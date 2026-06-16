@@ -49,9 +49,9 @@ export default function BudgetsPage() {
 
   const loadData = async () => {
     try {
-      const [budgetsRes] = await Promise.all([
+      const [budgetsRes, departmentsRes] = await Promise.all([
         fetch('/api/budgets'),
-        fetch('/api/departments').catch(() => null), // Departments API to be created
+        fetch('/api/departments'),
       ]);
 
       if (budgetsRes.ok) {
@@ -59,12 +59,10 @@ export default function BudgetsPage() {
         setBudgets(budgetsData.budgets || []);
       }
 
-      // For demo, use mock departments
-      setDepartments([
-        { id: 'dept1', name: 'Engineering' },
-        { id: 'dept2', name: 'Sales' },
-        { id: 'dept3', name: 'Marketing' },
-      ]);
+      if (departmentsRes.ok) {
+        const departmentsData = await departmentsRes.json();
+        setDepartments(departmentsData.departments || []);
+      }
 
       setLoading(false);
     } catch (err) {
@@ -311,13 +309,22 @@ export default function BudgetsPage() {
       ) : (
         <div className="space-y-4">
           {budgets.map((budget) => {
-            const usagePercent = parseFloat(budget.capAmount) > 0
-              ? ((parseFloat(budget.currentCommitted) / parseFloat(budget.capAmount)) * 100).toFixed(1)
-              : '0';
-            const available = (parseFloat(budget.capAmount) - parseFloat(budget.currentCommitted)).toFixed(2);
+            const usagePercent =
+              parseFloat(budget.capAmount) > 0
+                ? (
+                    (parseFloat(budget.currentCommitted) / parseFloat(budget.capAmount)) *
+                    100
+                  ).toFixed(1)
+                : '0';
+            const available = (
+              parseFloat(budget.capAmount) - parseFloat(budget.currentCommitted)
+            ).toFixed(2);
 
             return (
-              <div key={budget.id} className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <div
+                key={budget.id}
+                className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+              >
                 <div className="mb-4 flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold">{budget.name}</h3>
@@ -328,7 +335,8 @@ export default function BudgetsPage() {
                       <div className="mb-1 flex items-center justify-between text-sm">
                         <span className="text-gray-600">Usage</span>
                         <span className="font-medium">
-                          {usagePercent}% ({parseFloat(budget.currentCommitted).toLocaleString()} / {parseFloat(budget.capAmount).toLocaleString()})
+                          {usagePercent}% ({parseFloat(budget.currentCommitted).toLocaleString()} /{' '}
+                          {parseFloat(budget.capAmount).toLocaleString()})
                         </span>
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
@@ -415,4 +423,3 @@ export default function BudgetsPage() {
     </div>
   );
 }
-

@@ -15,11 +15,10 @@ export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const state = searchParams.get('state'); // optional invite code
   const errorParam = searchParams.get('error');
 
   const signInUrl = new URL('/signin', origin);
-  const appUrl = new URL('/settings/wallets', origin);
+  const appUrl = new URL('/home', origin);
 
   if (errorParam) {
     signInUrl.searchParams.set(
@@ -81,76 +80,8 @@ export async function GET(request: NextRequest) {
     }
 
     const metadata = getRequestMetadata(request);
-    const inviteCode = (state ?? '').trim();
 
-    if (inviteCode) {
-      const invite = await db.invite.findUnique({
-        where: { code: inviteCode },
-        include: { organization: true, role: true },
-      });
-      if (!invite) {
-        signInUrl.searchParams.set('error', 'Invalid invite code');
-        signInUrl.searchParams.set('invite', inviteCode);
-        return NextResponse.redirect(signInUrl);
-      }
-      if (invite.usedAt ?? invite.usedById) {
-        signInUrl.searchParams.set('error', 'This invite has already been used');
-        return NextResponse.redirect(signInUrl);
-      }
-      if (new Date() > invite.expiresAt) {
-        signInUrl.searchParams.set('error', 'This invite has expired');
-        return NextResponse.redirect(signInUrl);
-      }
-
-      let user = await db.user.findUnique({ where: { email } });
-      if (!user) {
-        user = await db.user.create({
-          data: {
-            email,
-            name: profile.name ?? email.split('@')[0],
-          },
-        });
-      }
-
-      const existingUserRole = await db.userRole.findFirst({
-        where: {
-          userId: user.id,
-          organizationId: invite.organizationId,
-          roleId: invite.roleId,
-        },
-      });
-      if (!existingUserRole) {
-        await db.userRole.create({
-          data: {
-            userId: user.id,
-            organizationId: invite.organizationId,
-            roleId: invite.roleId,
-          },
-        });
-      }
-
-      await db.invite.update({
-        where: { id: invite.id },
-        data: { usedById: user.id, usedAt: new Date() },
-      });
-
-      const inviteTokens = await issueSessionTokens(user.id, invite.organizationId);
-      await createAuditLog({
-        organizationId: invite.organizationId,
-        actorId: user.id,
-        action: 'LOGIN',
-        entity: 'USER',
-        entityId: user.id,
-        after: { method: 'google', email, inviteCode: invite.code },
-        ...metadata,
-      });
-
-      const inviteSuccess = NextResponse.redirect(appUrl);
-      attachSessionToResponse(inviteSuccess, inviteTokens);
-      return inviteSuccess;
-    }
-
-    // No invite: find or create user and use first org or default org
+    // Find or create user and use first org or default org
     let user = await db.user.findUnique({ where: { email } });
     if (!user) {
       user = await db.user.create({
@@ -170,10 +101,7 @@ export async function GET(request: NextRequest) {
     if (!userRole) {
       const org = await db.organization.findFirst();
       if (!org) {
-        signInUrl.searchParams.set(
-          'error',
-          'No organization found. Use an invite link or contact support.'
-        );
+        signInUrl.searchParams.set('error', 'No organization found. Please contact support.');
         return NextResponse.redirect(signInUrl);
       }
       const employeeRole = await db.role.findUnique({ where: { key: 'EMPLOYEE' } });

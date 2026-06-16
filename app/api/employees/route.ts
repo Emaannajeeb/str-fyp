@@ -8,12 +8,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
+import { env } from '@/lib/env';
 import { z } from 'zod';
 
 async function listEmployeesHandler(
-  request: NextRequest,
+  _request: NextRequest,
   session: { userId: string; organizationId: string }
-) {
+): Promise<NextResponse> {
   try {
     const employees = await db.employee.findMany({
       where: {
@@ -26,6 +27,21 @@ async function listEmployeesHandler(
         startDate: true,
         endDate: true,
         userId: true,
+        user: {
+          select: {
+            email: true,
+            wallets: {
+              where: {
+                organizationId: session.organizationId,
+                isPrimary: true,
+              },
+              select: {
+                address: true,
+              },
+              take: 1,
+            },
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -34,7 +50,16 @@ async function listEmployeesHandler(
 
     return NextResponse.json({
       success: true,
-      employees,
+      employees: employees.map((employee) => ({
+        id: employee.id,
+        displayName: employee.displayName,
+        status: employee.status,
+        startDate: employee.startDate,
+        endDate: employee.endDate,
+        userId: employee.userId,
+        email: employee.user?.email ?? null,
+        walletAddress: employee.user?.wallets[0]?.address ?? null,
+      })),
     });
   } catch (error) {
     console.error('List employees error:', error);
@@ -50,7 +75,8 @@ async function listEmployeesHandler(
 
 const createEmployeeSchema = z.object({
   displayName: z.string().min(1, 'Display name is required'),
-  userId: z.string().optional(),
+  email: z.string().email('Valid email is required'),
+  walletAddress: z.string().min(1).optional(),
   startDate: z.string().datetime().or(z.date()),
   endDate: z.string().datetime().optional().or(z.date().optional()),
   status: z.enum(['ACTIVE', 'INACTIVE', 'TERMINATED', 'ON_LEAVE']).optional(),
@@ -59,25 +85,97 @@ const createEmployeeSchema = z.object({
 async function createEmployeeHandler(
   request: NextRequest,
   session: { userId: string; organizationId: string }
-) {
+): Promise<NextResponse> {
   try {
     const body = await request.json();
     const data = createEmployeeSchema.parse(body);
     const metadata = getRequestMetadata(request);
 
-    // Parse dates
-    const startDate = typeof data.startDate === 'string' ? new Date(data.startDate) : data.startDate;
+    const startDate =
+      typeof data.startDate === 'string' ? new Date(data.startDate) : data.startDate;
     const endDate = data.endDate
       ? typeof data.endDate === 'string'
         ? new Date(data.endDate)
         : data.endDate
       : undefined;
 
-    // Create employee
+    let user = await db.user.findUnique({
+      where: { email: data.email },
+    });
+
+    if (!user) {
+      user = await db.user.create({
+        data: {
+          email: data.email,
+          name: data.displayName,
+        },
+      });
+    }
+
+    const employeeRole = await db.role.findUnique({
+      where: { key: 'EMPLOYEE' },
+    });
+
+    if (!employeeRole) {
+      return NextResponse.json(
+        { error: 'EMPLOYEE role not configured. Run database seed.' },
+        { status: 500 }
+      );
+    }
+
+    const existingUserRole = await db.userRole.findFirst({
+      where: {
+        userId: user.id,
+        organizationId: session.organizationId,
+        roleId: employeeRole.id,
+      },
+    });
+
+    if (!existingUserRole) {
+      await db.userRole.create({
+        data: {
+          userId: user.id,
+          organizationId: session.organizationId,
+          roleId: employeeRole.id,
+        },
+      });
+    }
+
+    if (data.walletAddress) {
+      const existingWallet = await db.wallet.findFirst({
+        where: {
+          userId: user.id,
+          organizationId: session.organizationId,
+          address: data.walletAddress,
+        },
+      });
+
+      if (!existingWallet) {
+        const hasPrimaryWallet = await db.wallet.findFirst({
+          where: {
+            userId: user.id,
+            organizationId: session.organizationId,
+            isPrimary: true,
+          },
+        });
+
+        await db.wallet.create({
+          data: {
+            userId: user.id,
+            organizationId: session.organizationId,
+            address: data.walletAddress,
+            provider: 'manual',
+            network: env.SOLANA_CLUSTER,
+            isPrimary: !hasPrimaryWallet,
+          },
+        });
+      }
+    }
+
     const employee = await db.employee.create({
       data: {
         organizationId: session.organizationId,
-        userId: data.userId || null,
+        userId: user.id,
         displayName: data.displayName,
         status: data.status || 'ACTIVE',
         startDate,
@@ -89,12 +187,21 @@ async function createEmployeeHandler(
             id: true,
             email: true,
             name: true,
+            wallets: {
+              where: {
+                organizationId: session.organizationId,
+                isPrimary: true,
+              },
+              select: {
+                address: true,
+              },
+              take: 1,
+            },
           },
         },
       },
     });
 
-    // Log audit
     await createAuditLog({
       organizationId: session.organizationId,
       actorId: session.userId,
@@ -106,6 +213,9 @@ async function createEmployeeHandler(
         status: employee.status,
         startDate: employee.startDate.toISOString(),
         endDate: employee.endDate?.toISOString() || null,
+        email: user.email,
+        userId: user.id,
+        walletAddress: employee.user?.wallets[0]?.address ?? null,
       },
       ...metadata,
     });
@@ -119,6 +229,8 @@ async function createEmployeeHandler(
         startDate: employee.startDate,
         endDate: employee.endDate,
         userId: employee.userId,
+        email: employee.user?.email ?? null,
+        walletAddress: employee.user?.wallets[0]?.address ?? null,
         user: employee.user,
       },
     });
@@ -141,10 +253,9 @@ async function createEmployeeHandler(
 }
 
 export const GET = withAuthAndRBAC(listEmployeesHandler, {
-  requiredPermissions: ['VIEW_FINANCE_DASHBOARD', 'MANAGE_EMPLOYEES'], // Allow either permission
+  requiredPermissions: ['VIEW_FINANCE_DASHBOARD', 'MANAGE_EMPLOYEES'],
 });
 
 export const POST = withAuthAndRBAC(createEmployeeHandler, {
   requiredPermissions: ['MANAGE_EMPLOYEES'],
 });
-

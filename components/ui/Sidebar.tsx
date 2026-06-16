@@ -13,47 +13,153 @@ import {
   Menu,
   X,
   TrendingUp,
-  ClipboardList,
+  UserCircle,
 } from 'lucide-react';
 import { useState } from 'react';
+import { usePermissions } from '@/lib/hooks/usePermissions';
+import { PERMISSION_KEYS, type PermissionKey } from '@/types/rbac';
 
 interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
+  anyOf?: PermissionKey[];
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/finance/dashboard', icon: LayoutDashboard },
-  { name: 'Streams', href: '/streams', icon: Wallet },
-  { name: 'Employees', href: '/employees', icon: Users },
-  { name: 'Contracts', href: '/contracts', icon: FileText },
-  { name: 'Budgets', href: '/finance/budgets', icon: TrendingUp },
-  { name: 'Approvals', href: '/approvals', icon: CheckCircle2 },
-  { name: 'Audit', href: '/audit', icon: Shield },
+  {
+    name: 'My Dashboard',
+    href: '/me',
+    icon: UserCircle,
+    anyOf: [PERMISSION_KEYS.VIEW_SELF_STREAMS],
+  },
+  {
+    name: 'My Streams',
+    href: '/me/streams',
+    icon: Wallet,
+    anyOf: [PERMISSION_KEYS.VIEW_SELF_STREAMS],
+  },
+  {
+    name: 'Dashboard',
+    href: '/finance/dashboard',
+    icon: LayoutDashboard,
+    anyOf: [PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
+  {
+    name: 'Streams',
+    href: '/streams',
+    icon: Wallet,
+    anyOf: [PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
+  {
+    name: 'Employees',
+    href: '/employees',
+    icon: Users,
+    anyOf: [PERMISSION_KEYS.MANAGE_EMPLOYEES, PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
+  {
+    name: 'Contracts',
+    href: '/contracts',
+    icon: FileText,
+    anyOf: [PERMISSION_KEYS.MANAGE_EMPLOYEES, PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
+  {
+    name: 'Budgets',
+    href: '/finance/budgets',
+    icon: TrendingUp,
+    anyOf: [PERMISSION_KEYS.VIEW_BUDGET, PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
+  {
+    name: 'Approvals',
+    href: '/approvals',
+    icon: CheckCircle2,
+    anyOf: [PERMISSION_KEYS.APPROVE_PAYROLL],
+  },
+  {
+    name: 'Audit',
+    href: '/audit',
+    icon: Shield,
+    anyOf: [PERMISSION_KEYS.VIEW_AUDIT],
+  },
 ];
 
 const settingsNav: NavItem[] = [
-  { name: 'Users', href: '/settings/users', icon: Users },
+  {
+    name: 'Users',
+    href: '/settings/users',
+    icon: Users,
+    anyOf: [PERMISSION_KEYS.VIEW_FINANCE_DASHBOARD],
+  },
   { name: 'Wallets', href: '/settings/wallets', icon: Wallet },
-  { name: 'Notifications', href: '/settings/notifications', icon: ClipboardList },
 ];
 
-export function Sidebar() {
+function filterNavItems(
+  items: NavItem[],
+  hasAnyPermission: (perms: PermissionKey[]) => boolean,
+  loading: boolean
+): NavItem[] {
+  if (loading) {
+    return [];
+  }
+  return items.filter((item) => !item.anyOf || hasAnyPermission(item.anyOf));
+}
+
+function NavLink({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate?: () => void;
+}): React.ReactElement {
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={`group flex gap-x-3 rounded-lg p-3 text-sm font-semibold leading-6 transition-all duration-200 ${
+        active
+          ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-sm'
+          : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+      } `}
+    >
+      <item.icon
+        className={`h-6 w-6 shrink-0 ${
+          active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-500'
+        }`}
+        aria-hidden="true"
+      />
+      {item.name}
+      {item.badge && (
+        <span className="ml-auto rounded-full bg-blue-600 px-2 py-0.5 text-xs font-medium text-white">
+          {item.badge}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+export function Sidebar(): React.ReactElement {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { hasAnyPermission, loading } = usePermissions();
 
-  const isActive = (href: string) => {
+  const visibleNav = filterNavItems(navigation, hasAnyPermission, loading);
+  const visibleSettingsNav = filterNavItems(settingsNav, hasAnyPermission, loading);
+
+  const isActive = (href: string): boolean => {
+    if (href === '/me') {
+      return pathname === '/me';
+    }
     if (href === '/finance/dashboard') {
       return pathname === '/finance/dashboard';
     }
-    return pathname?.startsWith(href);
+    return pathname?.startsWith(href) ?? false;
   };
 
   return (
     <>
-      {/* Mobile menu button */}
       <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 bg-white px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:hidden">
         <button
           type="button"
@@ -72,11 +178,10 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Desktop sidebar */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
         <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r border-gray-200 bg-white px-6 pb-4">
           <div className="flex h-16 shrink-0 items-center">
-            <Link href="/finance/dashboard" className="flex items-center gap-2">
+            <Link href="/home" className="flex items-center gap-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-700">
                 <DollarSign className="h-6 w-6 text-white" />
               </div>
@@ -88,37 +193,11 @@ export function Sidebar() {
           </div>
           <nav className="flex flex-1 flex-col">
             <ul role="list" className="flex flex-1 flex-col gap-y-1">
-              {navigation.map((item) => {
-                const active = isActive(item.href);
-                return (
-                  <li key={item.name}>
-                    <Link
-                      href={item.href}
-                      className={`
-                        group flex gap-x-3 rounded-lg p-3 text-sm font-semibold leading-6 transition-all duration-200
-                        ${
-                          active
-                            ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                            : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                        }
-                      `}
-                    >
-                      <item.icon
-                        className={`h-6 w-6 shrink-0 ${
-                          active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-500'
-                        }`}
-                        aria-hidden="true"
-                      />
-                      {item.name}
-                      {item.badge && (
-                        <span className="ml-auto rounded-full bg-blue-600 px-2 py-0.5 text-xs font-medium text-white">
-                          {item.badge}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
+              {visibleNav.map((item) => (
+                <li key={item.name}>
+                  <NavLink item={item} active={isActive(item.href)} />
+                </li>
+              ))}
             </ul>
 
             <div className="mt-auto border-t border-gray-200 pt-4">
@@ -126,39 +205,17 @@ export function Sidebar() {
                 Settings
               </p>
               <ul role="list" className="mt-2 space-y-1">
-                {settingsNav.map((item) => {
-                  const active = isActive(item.href);
-                  return (
-                    <li key={item.name}>
-                      <Link
-                        href={item.href}
-                        className={`
-                          group flex gap-x-3 rounded-lg p-3 text-sm font-semibold leading-6 transition-all duration-200
-                          ${
-                            active
-                              ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                              : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                          }
-                        `}
-                      >
-                        <item.icon
-                          className={`h-6 w-6 shrink-0 ${
-                            active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-500'
-                          }`}
-                          aria-hidden="true"
-                        />
-                        {item.name}
-                      </Link>
-                    </li>
-                  );
-                })}
+                {visibleSettingsNav.map((item) => (
+                  <li key={item.name}>
+                    <NavLink item={item} active={isActive(item.href)} />
+                  </li>
+                ))}
               </ul>
             </div>
           </nav>
         </div>
       </div>
 
-      {/* Mobile sidebar */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="fixed inset-0 bg-gray-900/80" onClick={() => setMobileMenuOpen(false)} />
@@ -173,7 +230,7 @@ export function Sidebar() {
               </div>
               <button
                 type="button"
-                className="-m-2.5 rounded-md p-2.5 text-gray-700 ml-auto"
+                className="-m-2.5 ml-auto rounded-md p-2.5 text-gray-700"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <span className="sr-only">Close sidebar</span>
@@ -182,33 +239,15 @@ export function Sidebar() {
             </div>
             <nav className="mt-8 flex flex-1 flex-col">
               <ul role="list" className="flex flex-1 flex-col gap-y-1">
-                {navigation.map((item) => {
-                  const active = isActive(item.href);
-                  return (
-                    <li key={item.name}>
-                      <Link
-                        href={item.href}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={`
-                          group flex gap-x-3 rounded-lg p-3 text-sm font-semibold leading-6 transition-all duration-200
-                          ${
-                            active
-                              ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                              : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                          }
-                        `}
-                      >
-                        <item.icon
-                          className={`h-6 w-6 shrink-0 ${
-                            active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-500'
-                          }`}
-                          aria-hidden="true"
-                        />
-                        {item.name}
-                      </Link>
-                    </li>
-                  );
-                })}
+                {visibleNav.map((item) => (
+                  <li key={item.name}>
+                    <NavLink
+                      item={item}
+                      active={isActive(item.href)}
+                      onNavigate={() => setMobileMenuOpen(false)}
+                    />
+                  </li>
+                ))}
               </ul>
 
               <div className="mt-auto border-t border-gray-200 pt-4">
@@ -216,33 +255,15 @@ export function Sidebar() {
                   Settings
                 </p>
                 <ul role="list" className="mt-2 space-y-1">
-                  {settingsNav.map((item) => {
-                    const active = isActive(item.href);
-                    return (
-                      <li key={item.name}>
-                        <Link
-                          href={item.href}
-                          onClick={() => setMobileMenuOpen(false)}
-                          className={`
-                            group flex gap-x-3 rounded-lg p-3 text-sm font-semibold leading-6 transition-all duration-200
-                            ${
-                              active
-                                ? 'bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 shadow-sm'
-                                : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                            }
-                          `}
-                        >
-                          <item.icon
-                            className={`h-6 w-6 shrink-0 ${
-                              active ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-500'
-                            }`}
-                            aria-hidden="true"
-                          />
-                          {item.name}
-                        </Link>
-                      </li>
-                    );
-                  })}
+                  {visibleSettingsNav.map((item) => (
+                    <li key={item.name}>
+                      <NavLink
+                        item={item}
+                        active={isActive(item.href)}
+                        onNavigate={() => setMobileMenuOpen(false)}
+                      />
+                    </li>
+                  ))}
                 </ul>
               </div>
             </nav>
@@ -252,4 +273,3 @@ export function Sidebar() {
     </>
   );
 }
-

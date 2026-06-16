@@ -95,6 +95,43 @@ async function listContractsHandler(
       });
     }
 
+    const allContractIds = contracts.map((c) => c.id);
+    const [contractApprovalRows, fundingApprovalRows, streamRows] = await Promise.all([
+      db.approval.findMany({
+        where: {
+          organizationId: session.organizationId,
+          subjectType: 'CONTRACT',
+          subjectId: { in: allContractIds },
+        },
+        select: { subjectId: true, status: true },
+      }),
+      db.approval.findMany({
+        where: {
+          organizationId: session.organizationId,
+          subjectType: 'STREAM',
+          subjectId: { in: allContractIds },
+          step: 1,
+        },
+        select: { subjectId: true, status: true },
+      }),
+      db.stream.findMany({
+        where: { contractId: { in: allContractIds } },
+        select: { contractId: true },
+      }),
+    ]);
+
+    const resolveStatus = (
+      rows: { subjectId: string; status: string }[],
+      contractId: string
+    ): 'APPROVED' | 'PENDING' | 'REJECTED' | 'NONE' => {
+      const statuses = rows.filter((r) => r.subjectId === contractId).map((r) => r.status);
+      if (statuses.includes('APPROVED')) return 'APPROVED';
+      if (statuses.includes('PENDING')) return 'PENDING';
+      if (statuses.includes('REJECTED')) return 'REJECTED';
+      return 'NONE';
+    };
+    const hasStreamSet = new Set(streamRows.map((s) => s.contractId));
+
     return NextResponse.json({
       success: true,
       contracts: contracts.map((contract) => {
@@ -124,6 +161,9 @@ async function listContractsHandler(
           endDate: contract.endDate?.toISOString() || null,
           active: contract.active,
           onchainTx: contract.onchainTx ?? null,
+          contractApproval: resolveStatus(contractApprovalRows, contract.id),
+          fundingApproval: resolveStatus(fundingApprovalRows, contract.id),
+          hasStream: hasStreamSet.has(contract.id),
         };
       }),
     });

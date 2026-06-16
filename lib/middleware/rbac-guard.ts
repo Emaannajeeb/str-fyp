@@ -91,29 +91,13 @@ export function withAuthAndRBAC(
 ): ApiHandler {
   return async (request: NextRequest, routeContext: AppRouteHandlerContext) => {
     try {
-      // 1. Require authentication
+      // 1. Require authentication (JWT-based, no DB round trip)
       const session = await requireAuth(request);
 
-      // 1.5. Validate organization exists
-      const { db } = await import('@/server/db');
-      const organization = await db.organization.findUnique({
-        where: { id: session.organizationId },
-        select: { id: true },
-      });
-
-      if (!organization) {
-        return NextResponse.json(
-          {
-            error: 'Invalid session',
-            message: 'Organization not found. Please sign in again.',
-          },
-          { status: 401 }
-        );
-      }
-
-      // 2. Check permissions (skip if no permissions required)
-      const { requiredPermissions, requireAll = false, errorMessage: _errorMessage } =
-        options;
+      // 2. Check permissions (skip if no permissions required).
+      // Organization validity is enforced implicitly by the permission lookup:
+      // a missing/invalid org yields no roles -> no permissions -> denied.
+      const { requiredPermissions, requireAll = false, errorMessage: _errorMessage } = options;
       const permissionKeys = Array.isArray(requiredPermissions)
         ? requiredPermissions
         : [requiredPermissions];
@@ -197,4 +181,3 @@ export function withAuthAndRBAC(
     }
   };
 }
-

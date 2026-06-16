@@ -17,11 +17,19 @@ interface Employee {
   startDate: string;
   endDate: string | null;
   userId: string | null;
+  email: string | null;
+  walletAddress: string | null;
+}
+
+function accountStatus(employee: Employee): string {
+  if (!employee.userId) return 'Not linked';
+  if (employee.walletAddress) return 'Linked + wallet';
+  return 'Linked, no wallet';
 }
 
 export default function EmployeesPage() {
   const router = useRouter();
-  const [employees, _setEmployees] = useState<Employee[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -29,8 +37,9 @@ export default function EmployeesPage() {
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const canManageEmployees = hasPermission(PERMISSION_KEYS.MANAGE_EMPLOYEES);
 
-  // Form state
   const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [walletAddress, setWalletAddress] = useState('');
   const [startDate, setStartDate] = useState('');
   const [status, setStatus] = useState<'ACTIVE' | 'INACTIVE' | 'TERMINATED' | 'ON_LEAVE'>('ACTIVE');
 
@@ -39,12 +48,19 @@ export default function EmployeesPage() {
   }, []);
 
   const loadEmployees = async () => {
+    setLoading(true);
     try {
-      // For now, we'll fetch from a list endpoint (to be created)
-      // For demo, we'll just show the form
-      setLoading(false);
+      const response = await fetch('/api/employees');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load employees');
+      }
+
+      setEmployees(data.employees || []);
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load employees');
+    } finally {
       setLoading(false);
     }
   };
@@ -61,6 +77,8 @@ export default function EmployeesPage() {
         },
         body: JSON.stringify({
           displayName,
+          email,
+          walletAddress: walletAddress.trim() || undefined,
           startDate: new Date(startDate).toISOString(),
           status,
         }),
@@ -72,8 +90,9 @@ export default function EmployeesPage() {
         throw new Error(data.error || 'Failed to create employee');
       }
 
-      // Reset form and reload
       setDisplayName('');
+      setEmail('');
+      setWalletAddress('');
       setStartDate('');
       setStatus('ACTIVE');
       setShowForm(false);
@@ -128,6 +147,41 @@ export default function EmployeesPage() {
             </div>
 
             <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
+                placeholder="john@example.com"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Employee signs in with this email (or Google using the same address).
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="walletAddress" className="block text-sm font-medium text-gray-700">
+                Wallet Address (optional)
+              </label>
+              <input
+                id="walletAddress"
+                type="text"
+                value={walletAddress}
+                onChange={(e) => setWalletAddress(e.target.value)}
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
+                placeholder="Solana wallet address for payroll"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                If omitted, the employee can connect a wallet after signing in.
+              </p>
+            </div>
+
+            <div>
               <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">
                 Start Date
               </label>
@@ -150,12 +204,7 @@ export default function EmployeesPage() {
                 value={status}
                 onChange={(e) => {
                   const v = e.target.value;
-                  if (
-                    v === 'ACTIVE' ||
-                    v === 'INACTIVE' ||
-                    v === 'TERMINATED' ||
-                    v === 'ON_LEAVE'
-                  )
+                  if (v === 'ACTIVE' || v === 'INACTIVE' || v === 'TERMINATED' || v === 'ON_LEAVE')
                     setStatus(v);
                 }}
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
@@ -190,7 +239,7 @@ export default function EmployeesPage() {
       )}
 
       {loading ? (
-        <TableSkeleton rows={5} columns={4} />
+        <TableSkeleton rows={5} columns={5} />
       ) : employees.length === 0 ? (
         <EmptyState
           icon={User}
@@ -207,12 +256,57 @@ export default function EmployeesPage() {
           }
         />
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="p-6">
-            <p className="text-sm text-gray-600">
-              Employee list will be displayed here. Create your first employee to get started.
-            </p>
-          </div>
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Email
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Start Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Account
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 bg-white">
+              {employees.map((employee) => (
+                <tr key={employee.id}>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
+                    {employee.displayName}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
+                    {employee.email ?? '—'}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${
+                        employee.status === 'ACTIVE'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {employee.status}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
+                    {new Date(employee.startDate).toLocaleDateString()}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
+                    {accountStatus(employee)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

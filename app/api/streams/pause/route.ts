@@ -8,7 +8,6 @@ import { db } from '@/server/db';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
 import { createStreamflowClient } from '@/server/streamflow';
-import { sendNotification } from '@/server/notify';
 import { env } from '@/lib/env';
 import { z } from 'zod';
 
@@ -34,10 +33,7 @@ async function pauseStreamHandler(
     });
 
     if (!stream) {
-      return NextResponse.json(
-        { error: 'Stream not found or access denied' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Stream not found or access denied' }, { status: 404 });
     }
 
     if (stream.status !== 'ACTIVE') {
@@ -81,7 +77,7 @@ async function pauseStreamHandler(
         },
         ...metadata,
       });
-      
+
       throw error;
     }
 
@@ -109,33 +105,6 @@ async function pauseStreamHandler(
       },
       ...metadata,
     });
-
-    // Send notification
-    try {
-      const employee = await db.employee.findUnique({
-        where: { id: stream.employeeId },
-        select: { userId: true, displayName: true },
-      });
-
-      await sendNotification({
-        organizationId: session.organizationId,
-        userId: employee?.userId || undefined,
-        type: 'STREAM_PAUSED',
-        payload: {
-          title: `Stream Paused`,
-          message: `Payment stream has been paused. Stream ID: ${stream.streamflowStreamId}`,
-          data: {
-            streamId: stream.id,
-            streamflowStreamId: stream.streamflowStreamId,
-            employeeId: stream.employeeId,
-            employeeName: employee?.displayName,
-          },
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send stream pause notification:', error);
-      // Don't fail the request if notification fails
-    }
 
     return NextResponse.json({
       success: true,
@@ -165,4 +134,3 @@ async function pauseStreamHandler(
 export const POST = withAuthAndRBAC(pauseStreamHandler, {
   requiredPermissions: ['PAUSE_STREAM'],
 });
-

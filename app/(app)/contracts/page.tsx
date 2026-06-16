@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, FileText, ExternalLink, Loader2 } from 'lucide-react';
+import { useState, useEffect, type ReactElement } from 'react';
+import { Plus, FileText, ExternalLink, Loader2, Send, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -23,6 +24,8 @@ interface Employee {
   displayName: string;
 }
 
+type ApprovalStatus = 'APPROVED' | 'PENDING' | 'REJECTED' | 'NONE';
+
 interface Contract {
   id: string;
   employeeId: string;
@@ -38,6 +41,36 @@ interface Contract {
   onchainTx?: string | null;
   startDate: string;
   endDate?: string | null;
+  contractApproval: ApprovalStatus;
+  fundingApproval: ApprovalStatus;
+  hasStream: boolean;
+}
+
+const APPROVAL_BADGE_STYLES: Record<ApprovalStatus, string> = {
+  APPROVED: 'bg-green-100 text-green-800',
+  PENDING: 'bg-amber-100 text-amber-800',
+  REJECTED: 'bg-red-100 text-red-800',
+  NONE: 'bg-gray-100 text-gray-600',
+};
+
+const APPROVAL_BADGE_LABELS: Record<ApprovalStatus, string> = {
+  APPROVED: 'Approved',
+  PENDING: 'Pending',
+  REJECTED: 'Rejected',
+  NONE: 'Not requested',
+};
+
+function ApprovalBadge({ label, status }: { label: string; status: ApprovalStatus }): ReactElement {
+  return (
+    <span className="inline-flex w-fit items-center gap-1 text-xs text-gray-600">
+      <span className="font-medium">{label}:</span>
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${APPROVAL_BADGE_STYLES[status]}`}
+      >
+        {APPROVAL_BADGE_LABELS[status]}
+      </span>
+    </span>
+  );
 }
 
 export default function ContractsPage() {
@@ -52,6 +85,8 @@ export default function ContractsPage() {
   const { hasPermission, loading: permissionsLoading } = usePermissions();
   const { connectedWallet } = useWalletStore();
   const canCreateContract = hasPermission(PERMISSION_KEYS.CREATE_CONTRACT);
+  const canRequestApproval = hasPermission(PERMISSION_KEYS.APPROVE_PAYROLL);
+  const [requestingApprovalFor, setRequestingApprovalFor] = useState<string | null>(null);
 
   // Form state
   const [employeeId, setEmployeeId] = useState('');
@@ -88,6 +123,43 @@ export default function ContractsPage() {
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to load data');
       setLoading(false);
+    }
+  };
+
+  const requestApproval = async (subjectType: 'CONTRACT' | 'STREAM', subjectId: string) => {
+    const response = await fetch('/api/approvals/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subjectType, subjectId, step: 1 }),
+    });
+    if (response.ok) return;
+    const data = await response.json().catch(() => ({}));
+    // An already-existing pending request is fine for this convenience action.
+    if (
+      response.status === 400 &&
+      typeof data.error === 'string' &&
+      data.error.includes('already exists')
+    ) {
+      return;
+    }
+    throw new Error(data.error || `Failed to request ${subjectType.toLowerCase()} approval`);
+  };
+
+  const handleRequestApprovals = async (contract: Contract) => {
+    setRequestingApprovalFor(contract.id);
+    try {
+      if (contract.contractApproval === 'NONE' || contract.contractApproval === 'REJECTED') {
+        await requestApproval('CONTRACT', contract.id);
+      }
+      if (contract.fundingApproval === 'NONE' || contract.fundingApproval === 'REJECTED') {
+        await requestApproval('STREAM', contract.id);
+      }
+      await loadData();
+      success('Approval requests sent. Approve them on the Approvals page.');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Failed to request approvals');
+    } finally {
+      setRequestingApprovalFor(null);
     }
   };
 
@@ -157,10 +229,7 @@ export default function ContractsPage() {
           const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || 'devnet';
           const explorerUrl = getExplorerUrl(txSignature, cluster);
 
-          success(
-            `Contract created and recorded on-chain! View on Explorer: ${explorerUrl}`,
-            8000
-          );
+          success(`Contract created and recorded on-chain! View on Explorer: ${explorerUrl}`, 8000);
 
           // Open explorer in new tab
           window.open(explorerUrl, '_blank');
@@ -190,6 +259,57 @@ export default function ContractsPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const renderContractAction = (contract: Contract) => {
+    const fullyApproved =
+      contract.contractApproval === 'APPROVED' && contract.fundingApproval === 'APPROVED';
+
+    if (contract.hasStream) {
+      return <span className="text-xs text-gray-400">Stream active</span>;
+    }
+
+    if (fullyApproved) {
+      return (
+        <Link
+          href="/streams/create"
+          className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+        >
+          Create Stream
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+      );
+    }
+
+    if (!canRequestApproval) {
+      return <span className="text-xs text-gray-400">Awaiting approvals</span>;
+    }
+
+    const bothPending =
+      contract.contractApproval === 'PENDING' && contract.fundingApproval === 'PENDING';
+    if (bothPending) {
+      return <span className="text-xs text-amber-600">Pending approval</span>;
+    }
+
+    return (
+      <button
+        onClick={() => handleRequestApprovals(contract)}
+        disabled={requestingApprovalFor === contract.id}
+        className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        {requestingApprovalFor === contract.id ? (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Sending...
+          </>
+        ) : (
+          <>
+            <Send className="h-3 w-3" />
+            Request Approvals
+          </>
+        )}
+      </button>
+    );
   };
 
   return (
@@ -296,12 +416,7 @@ export default function ContractsPage() {
                   value={period}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (
-                      v === 'MONTHLY' ||
-                      v === 'WEEKLY' ||
-                      v === 'BIWEEKLY' ||
-                      v === 'ONE_TIME'
-                    )
+                    if (v === 'MONTHLY' || v === 'WEEKLY' || v === 'BIWEEKLY' || v === 'ONE_TIME')
                       setPeriod(v);
                   }}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
@@ -373,9 +488,10 @@ export default function ContractsPage() {
             </div>
 
             {!connectedWallet && (
-              <div className="rounded-md bg-yellow-50 border border-yellow-200 p-3">
+              <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
                 <p className="text-sm text-yellow-800">
-                  <strong>Note:</strong> Connect your Phantom wallet to record this contract on-chain and make it visible on Solana Explorer.
+                  <strong>Note:</strong> Connect your Phantom wallet to record this contract
+                  on-chain and make it visible on Solana Explorer.
                 </p>
               </div>
             )}
@@ -432,48 +548,54 @@ export default function ContractsPage() {
           }
         />
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   Employee
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   Token
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   Amount/Period
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   Period
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Approvals
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   On-Chain
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 bg-white">
               {contracts.map((contract) => (
                 <tr key={contract.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                     {contract.employee?.displayName || 'N/A'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                     {contract.tokenSymbol}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                     {parseFloat(contract.amountPerPeriod).toLocaleString()} {contract.tokenSymbol}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                     {contract.period}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="whitespace-nowrap px-6 py-4">
                     <span
-                      className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                         contract.active
                           ? 'bg-green-100 text-green-800'
                           : 'bg-gray-100 text-gray-800'
@@ -482,7 +604,18 @@ export default function ContractsPage() {
                       {contract.active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm">
+                    <div className="flex flex-col gap-1">
+                      <ApprovalBadge label="Contract" status={contract.contractApproval} />
+                      <ApprovalBadge label="Funding" status={contract.fundingApproval} />
+                      {contract.hasStream && (
+                        <span className="inline-flex w-fit items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                          Stream created
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm">
                     {contract.onchainTx ? (
                       <a
                         href={getExplorerUrl(contract.onchainTx)}
@@ -496,6 +629,9 @@ export default function ContractsPage() {
                     ) : (
                       <span className="text-gray-400">Not on-chain</span>
                     )}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm">
+                    {renderContractAction(contract)}
                   </td>
                 </tr>
               ))}

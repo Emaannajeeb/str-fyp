@@ -7,7 +7,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/server/db';
 import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
-import { sendNotification } from '@/server/notify';
 import { z } from 'zod';
 
 const requestApprovalSchema = z.object({
@@ -35,22 +34,31 @@ async function requestApprovalHandler(
       });
 
       if (!contract) {
-        return NextResponse.json(
-          { error: 'Contract not found or access denied' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'Contract not found or access denied' }, { status: 404 });
       }
     } else if (subjectType === 'STREAM') {
-      const stream = await db.stream.findFirst({
-        where: {
-          id: subjectId,
-          organizationId: session.organizationId,
-        },
-      });
+      // A STREAM approval represents funding approval. Before a stream exists it is
+      // keyed by the contract id (funding sign-off), and afterwards by the stream id.
+      const [stream, contract] = await Promise.all([
+        db.stream.findFirst({
+          where: {
+            id: subjectId,
+            organizationId: session.organizationId,
+          },
+          select: { id: true },
+        }),
+        db.contract.findFirst({
+          where: {
+            id: subjectId,
+            organizationId: session.organizationId,
+          },
+          select: { id: true },
+        }),
+      ]);
 
-      if (!stream) {
+      if (!stream && !contract) {
         return NextResponse.json(
-          { error: 'Stream not found or access denied' },
+          { error: 'Stream or contract not found or access denied' },
           { status: 404 }
         );
       }
@@ -101,27 +109,6 @@ async function requestApprovalHandler(
       ...metadata,
     });
 
-    // Send notification
-    try {
-      await sendNotification({
-        organizationId: session.organizationId,
-        type: 'APPROVAL_REQUIRED',
-        payload: {
-          title: `Approval Required: ${subjectType}`,
-          message: `A new ${subjectType.toLowerCase()} requires approval. Step ${step} is pending.`,
-          data: {
-            approvalId: approval.id,
-            subjectType,
-            subjectId,
-            step,
-          },
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send approval notification:', error);
-      // Don't fail the request if notification fails
-    }
-
     return NextResponse.json({
       success: true,
       approval: {
@@ -154,4 +141,3 @@ async function requestApprovalHandler(
 export const POST = withAuthAndRBAC(requestApprovalHandler, {
   requiredPermissions: ['APPROVE_PAYROLL'], // HR/Manager can request approvals
 });
-

@@ -10,7 +10,6 @@ import { withAuthAndRBAC } from '@/lib/middleware/rbac-guard';
 import { createAuditLog, getRequestMetadata } from '@/server/auth/audit';
 import { createStreamflowClient } from '@/server/streamflow';
 import type { StreamStatus } from '@/server/streamflow/types';
-import { sendNotification } from '@/server/notify';
 import { env } from '@/lib/env';
 import { canCommit } from '@/server/finance/budget';
 import { z } from 'zod';
@@ -104,10 +103,10 @@ async function createStreamHandler(
     // Calculate total amount (we'll do this before checking budget)
     const contractDuration = contract.endDate
       ? Math.floor((contract.endDate.getTime() - contract.startDate.getTime()) / 1000)
-      : Math.floor((data.endTime - data.startTime));
-    
+      : Math.floor(data.endTime - data.startTime);
+
     let totalAmount = contract.amountPerPeriod.toString();
-    
+
     if (contract.period === 'MONTHLY') {
       const months = Math.ceil(contractDuration / (30 * 24 * 60 * 60));
       totalAmount = (Number(contract.amountPerPeriod) * months).toString();
@@ -145,10 +144,7 @@ async function createStreamHandler(
     });
 
     if (!employee) {
-      return NextResponse.json(
-        { error: 'Employee not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     }
 
     if (!employee.user || employee.user.wallets.length === 0) {
@@ -224,7 +220,10 @@ async function createStreamHandler(
       // in production with Phantom wallets
       if (!env.STREAMFLOW_ENABLED) {
         return NextResponse.json(
-          { error: 'Streamflow is not enabled. Please create streams client-side with Phantom wallet.' },
+          {
+            error:
+              'Streamflow is not enabled. Please create streams client-side with Phantom wallet.',
+          },
           { status: 400 }
         );
       }
@@ -247,10 +246,14 @@ async function createStreamHandler(
         amountPerPeriod: contract.amountPerPeriod.toString(),
         startTime: data.startTime,
         endTime: data.endTime,
-        period: contract.period === 'MONTHLY' ? 30 * 24 * 60 * 60 : 
-                contract.period === 'WEEKLY' ? 7 * 24 * 60 * 60 :
-                contract.period === 'BIWEEKLY' ? 14 * 24 * 60 * 60 :
-                data.endTime - data.startTime,
+        period:
+          contract.period === 'MONTHLY'
+            ? 30 * 24 * 60 * 60
+            : contract.period === 'WEEKLY'
+              ? 7 * 24 * 60 * 60
+              : contract.period === 'BIWEEKLY'
+                ? 14 * 24 * 60 * 60
+                : data.endTime - data.startTime,
         cliffTime: data.cliffTime,
         decimals: 9, // Default to SOL decimals
         name: `Payroll: ${employee.displayName}`,
@@ -263,16 +266,13 @@ async function createStreamHandler(
       };
 
       auditStreamConfigPayload = streamConfig;
-      auditConfigHash = createHash('sha256')
-        .update(JSON.stringify(streamConfig))
-        .digest('hex');
+      auditConfigHash = createHash('sha256').update(JSON.stringify(streamConfig)).digest('hex');
 
       try {
         // Create a ConnectedWallet wrapper for the server adapter
         const serverWallet = {
           address: senderWallet.publicKey.toString(),
-          signMessage: async (msg: Uint8Array) =>
-            signDetachedWithKeypair(senderWallet, msg),
+          signMessage: async (msg: Uint8Array) => signDetachedWithKeypair(senderWallet, msg),
           signAndSendTransaction: async (tx: unknown) => {
             if (tx instanceof Transaction) {
               tx.partialSign(senderWallet);
@@ -286,7 +286,7 @@ async function createStreamHandler(
           },
           disconnect: async () => {},
         };
-        
+
         streamflowResult = await streamflowClient.createStream(streamConfig, serverWallet);
       } catch (error) {
         // Log error to audit
@@ -303,7 +303,7 @@ async function createStreamHandler(
           },
           ...metadata,
         });
-        
+
         // Re-throw with user-friendly message
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         throw new Error(`Failed to create stream on-chain: ${errorMessage}`);
@@ -361,30 +361,6 @@ async function createStreamHandler(
       ...metadata,
     });
 
-    // Send notification
-    try {
-      await sendNotification({
-        organizationId: session.organizationId,
-        userId: employee.userId || undefined,
-        type: 'STREAM_CREATED',
-        payload: {
-          title: `Stream Created: ${employee.displayName}`,
-          message: `A new payment stream has been created for ${employee.displayName}. Amount: ${contract.tokenSymbol} ${totalAmount.toString()}`,
-          data: {
-            streamId: stream.id,
-            streamflowStreamId: streamflowResult.streamId,
-            employeeId: employee.id,
-            employeeName: employee.displayName,
-            tokenSymbol: contract.tokenSymbol,
-            totalAmount: totalAmount.toString(),
-          },
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send stream creation notification:', error);
-      // Don't fail the request if notification fails
-    }
-
     return NextResponse.json({
       success: true,
       stream: {
@@ -421,4 +397,3 @@ async function createStreamHandler(
 export const POST = withAuthAndRBAC(createStreamHandler, {
   requiredPermissions: ['CREATE_STREAM'],
 });
-

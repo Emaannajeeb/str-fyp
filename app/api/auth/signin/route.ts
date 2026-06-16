@@ -1,6 +1,6 @@
 /**
  * Sign-in API route
- * Supports email magic link (simplified) or org-based invite code
+ * Supports email magic link (simplified)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,87 +14,14 @@ import { z } from 'zod';
 const signInSchema = z.object({
   email: z.string().email().optional(),
   name: z.string().optional(),
-  inviteCode: z.string().optional(),
   otp: z.string().optional(), // For demo purposes
 });
 
 async function signInHandler(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, name, inviteCode } = signInSchema.parse(body);
+    const { email } = signInSchema.parse(body);
     const metadata = getRequestMetadata(request);
-
-    // Invite code flow: validate invite from DB, then require email to create/find user and assign org+role
-    if (inviteCode) {
-      const invite = await db.invite.findUnique({
-        where: { code: inviteCode.trim() },
-        include: { organization: true, role: true },
-      });
-      if (!invite) {
-        return NextResponse.json({ error: 'Invalid invite code' }, { status: 400 });
-      }
-      if (invite.usedAt ?? invite.usedById) {
-        return NextResponse.json({ error: 'This invite has already been used' }, { status: 400 });
-      }
-      if (new Date() > invite.expiresAt) {
-        return NextResponse.json({ error: 'This invite has expired' }, { status: 400 });
-      }
-      if (!email) {
-        return NextResponse.json(
-          { error: 'Email is required when using an invite code' },
-          { status: 400 }
-        );
-      }
-
-      let user = await db.user.findUnique({ where: { email } });
-      if (!user) {
-        user = await db.user.create({
-          data: {
-            email,
-            name: name ?? email.split('@')[0],
-          },
-        });
-      }
-
-      const existingUserRole = await db.userRole.findFirst({
-        where: {
-          userId: user.id,
-          organizationId: invite.organizationId,
-          roleId: invite.roleId,
-        },
-      });
-      if (!existingUserRole) {
-        await db.userRole.create({
-          data: {
-            userId: user.id,
-            organizationId: invite.organizationId,
-            roleId: invite.roleId,
-          },
-        });
-      }
-
-      await db.invite.update({
-        where: { id: invite.id },
-        data: { usedById: user.id, usedAt: new Date() },
-      });
-
-      await createSession(user.id, invite.organizationId);
-      await createAuditLog({
-        organizationId: invite.organizationId,
-        actorId: user.id,
-        action: 'LOGIN',
-        entity: 'USER',
-        entityId: user.id,
-        after: { method: 'invite_code', email, inviteCode: invite.code },
-        ...metadata,
-      });
-
-      return NextResponse.json({
-        success: true,
-        userId: user.id,
-        organizationId: invite.organizationId,
-      });
-    }
 
     // For demo: if email provided, create/find user and sign in
     // In production, this would send a magic link email
@@ -116,7 +43,7 @@ async function signInHandler(request: NextRequest) {
       }
 
       // Find user's first organization (for demo)
-      // In production, user would select organization or it would be from invite
+      // In production, user would select organization
       const userRole = await db.userRole.findFirst({
         where: { userId: user.id },
         include: { organization: true },
@@ -211,7 +138,7 @@ async function signInHandler(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Either email or inviteCode is required' }, { status: 400 });
+    return NextResponse.json({ error: 'Email is required' }, { status: 400 });
   } catch (error) {
     console.error('Sign-in error:', error);
     return NextResponse.json(

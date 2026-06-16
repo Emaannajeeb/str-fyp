@@ -107,7 +107,7 @@ The reconciliation worker:
 - Runs every 5 minutes
 - Syncs all active/paused streams with Streamflow
 - Updates stream statuses and `lastSyncedAt` timestamps
-- Creates notifications for anomalies (paused remotely, cancelled, completed, etc.)
+- Creates audit logs for anomalies (paused remotely, cancelled, completed, etc.)
 
 **Note:** In MOCK mode, the worker uses the MockStreamflowClient, so it will work without actual blockchain connections.
 

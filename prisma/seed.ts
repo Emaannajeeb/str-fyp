@@ -167,12 +167,7 @@ async function main() {
       'VIEW_BUDGET',
       'VIEW_AUDIT_LOG',
     ],
-    EMPLOYEE: [
-      'VIEW_SELF_STREAMS',
-      'VIEW_FINANCE_DASHBOARD',
-      // Legacy permissions
-      'VIEW_BUDGET',
-    ],
+    EMPLOYEE: ['VIEW_SELF_STREAMS'],
     AUDITOR: [
       'VIEW_AUDIT',
       'VIEW_FINANCE_DASHBOARD',
@@ -185,6 +180,23 @@ async function main() {
   for (const [roleKey, permissionKeys] of Object.entries(rolePermissionMap)) {
     const role = createdRoles.find((r: { key: string }) => r.key === roleKey);
     if (!role) continue;
+
+    const desiredPermissionIds = permissionKeys
+      .map((key) => createdPermissions.find((p: { key: string }) => p.key === key)?.id)
+      .filter((id): id is string => id !== undefined);
+
+    if (desiredPermissionIds.length === 0) {
+      await prisma.rolePermission.deleteMany({
+        where: { roleId: role.id },
+      });
+    } else {
+      await prisma.rolePermission.deleteMany({
+        where: {
+          roleId: role.id,
+          permissionId: { notIn: desiredPermissionIds },
+        },
+      });
+    }
 
     for (const permissionKey of permissionKeys) {
       const permission = createdPermissions.find((p: { key: string }) => p.key === permissionKey);

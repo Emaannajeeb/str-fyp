@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bell, User, LogOut, Wallet } from 'lucide-react';
+import { User, LogOut, Wallet } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 const IS_DEVNET = process.env.NEXT_PUBLIC_SOLANA_CLUSTER === 'devnet';
@@ -70,13 +70,6 @@ export function Header() {
               )}
             </div>
           )}
-          {/* Notifications */}
-          <button type="button" className="relative -m-2.5 p-2.5 text-gray-400 hover:text-gray-500">
-            <span className="sr-only">View notifications</span>
-            <Bell className="h-6 w-6" aria-hidden="true" />
-            <span className="absolute right-0 top-0 block h-2 w-2 rounded-full bg-red-400 ring-2 ring-white" />
-          </button>
-
           {/* User menu */}
           <div className="relative">
             <button

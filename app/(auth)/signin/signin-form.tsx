@@ -2,27 +2,18 @@
 
 import { useState, useEffect, useMemo, type FormEvent, type ReactElement } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Mail, Key, Loader2, ExternalLink } from 'lucide-react';
+import { Mail, Loader2, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
 export function SignInForm(): ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const inviteFromUrl = useMemo(() => searchParams.get('invite') ?? '', [searchParams]);
   const errorFromUrl = useMemo(() => searchParams.get('error') ?? null, [searchParams]);
   const [email, setEmail] = useState('');
-  const [inviteCode, setInviteCode] = useState(inviteFromUrl);
-  const [method, setMethod] = useState<'email' | 'invite'>(inviteFromUrl ? 'invite' : 'email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(errorFromUrl);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (inviteFromUrl) {
-      setInviteCode(inviteFromUrl);
-      setMethod('invite');
-    }
-  }, [inviteFromUrl]);
   useEffect(() => {
     if (errorFromUrl) setError(errorFromUrl);
   }, [errorFromUrl]);
@@ -77,11 +68,7 @@ export function SignInForm(): ReactElement {
           'X-CSRF-Token': token,
         },
         credentials: 'include',
-        body: JSON.stringify(
-          method === 'email'
-            ? { email }
-            : { inviteCode: inviteCode.trim(), email, name: email ? undefined : undefined }
-        ),
+        body: JSON.stringify({ email }),
       });
 
       const data = await response.json();
@@ -90,7 +77,7 @@ export function SignInForm(): ReactElement {
         throw new Error(data.error || 'Sign-in failed');
       }
 
-      router.push('/settings/wallets');
+      router.push('/home');
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed');
@@ -114,18 +101,12 @@ export function SignInForm(): ReactElement {
               Streamflow Payroll
             </span>
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Use your email or organization invite code
-          </p>
+          <p className="mt-2 text-center text-sm text-gray-600">Use your email to continue</p>
         </div>
 
         <div className="flex flex-col gap-3">
           <Link
-            href={
-              method === 'invite' && inviteCode
-                ? `/api/auth/google?inviteCode=${encodeURIComponent(inviteCode.trim())}`
-                : '/api/auth/google'
-            }
+            href="/api/auth/google"
             className="flex items-center justify-center gap-2 rounded-lg border-2 border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -157,42 +138,9 @@ export function SignInForm(): ReactElement {
           </div>
           <div className="relative flex justify-center text-xs">
             <span className="bg-gradient-to-br from-blue-50 via-white to-purple-50 px-2 text-gray-500">
-              or continue with email / invite code
+              or continue with email
             </span>
           </div>
-        </div>
-
-        <div className="flex rounded-xl border-2 border-gray-200 bg-white p-1 shadow-sm">
-          <button
-            type="button"
-            onClick={() => {
-              setMethod('email');
-              setError(null);
-            }}
-            className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
-              method === 'email'
-                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md'
-                : 'text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <Mail className="mr-2 inline h-4 w-4" />
-            Email
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMethod('invite');
-              setError(null);
-            }}
-            className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
-              method === 'invite'
-                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md'
-                : 'text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <Key className="mr-2 inline h-4 w-4" />
-            Invite Code
-          </button>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
@@ -202,65 +150,26 @@ export function SignInForm(): ReactElement {
             </div>
           )}
 
-          {method === 'email' ? (
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                placeholder="you@example.com"
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                For demo: Enter any email. A user account will be created if it does not already
-                exist.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div>
-                <label htmlFor="inviteCode" className="block text-sm font-medium text-gray-700">
-                  Invite Code
-                </label>
-                <input
-                  id="inviteCode"
-                  name="inviteCode"
-                  type="text"
-                  required
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                  placeholder="Paste the code from your invite link"
-                />
-              </div>
-              <div>
-                <label htmlFor="inviteEmail" className="block text-sm font-medium text-gray-700">
-                  Email address
-                </label>
-                <input
-                  id="inviteEmail"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
-                  placeholder="you@example.com"
-                />
-                <p className="mt-2 text-xs text-gray-500">
-                  Enter your email to join with this invite. An account will be created if needed.
-                </p>
-              </div>
-            </>
-          )}
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              Email address
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
+              placeholder="you@example.com"
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              For demo: Enter any email. A user account will be created if it does not already
+              exist.
+            </p>
+          </div>
 
           <div>
             <button

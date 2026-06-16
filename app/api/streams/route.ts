@@ -69,6 +69,6 @@ async function listStreamsHandler(
 }
 
 export const GET = withAuthAndRBAC(listStreamsHandler, {
-  requiredPermissions: ['VIEW_SELF_STREAMS'], // Users can view streams in their org
+  // Org-level viewers (finance/admin) and self-stream viewers can both list streams
+  requiredPermissions: ['VIEW_SELF_STREAMS', 'VIEW_FINANCE_DASHBOARD'],
 });
-

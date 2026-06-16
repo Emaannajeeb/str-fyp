@@ -19,6 +19,9 @@ import { PERMISSION_KEYS } from '@/types/rbac';
 // Mock the database
 vi.mock('@/server/db', () => ({
   db: {
+    organization: {
+      findUnique: vi.fn(),
+    },
     userRole: {
       findMany: vi.fn(),
     },
@@ -34,6 +37,10 @@ describe('RBAC', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Organization existence check passes by default for these tests
+    vi.mocked(db.organization.findUnique).mockResolvedValue({
+      id: organizationId,
+    } as Awaited<ReturnType<typeof db.organization.findUnique>>);
   });
 
   describe('getUserPermissions', () => {
@@ -170,11 +177,7 @@ describe('RBAC', () => {
         },
       ]);
 
-      const hasAccess = await hasPermission(
-        userId,
-        organizationId,
-        PERMISSION_KEYS.CREATE_STREAM
-      );
+      const hasAccess = await hasPermission(userId, organizationId, PERMISSION_KEYS.CREATE_STREAM);
 
       expect(hasAccess).toBe(true);
     });
@@ -207,11 +210,7 @@ describe('RBAC', () => {
         },
       ]);
 
-      const hasAccess = await hasPermission(
-        userId,
-        organizationId,
-        PERMISSION_KEYS.CREATE_STREAM
-      );
+      const hasAccess = await hasPermission(userId, organizationId, PERMISSION_KEYS.CREATE_STREAM);
 
       expect(hasAccess).toBe(false);
     });
@@ -477,4 +476,3 @@ describe('RBAC', () => {
     });
   });
 });
-

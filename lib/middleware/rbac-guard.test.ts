@@ -7,10 +7,18 @@ import { NextRequest } from 'next/server';
 import { withAuthAndRBAC } from './rbac-guard';
 import { requireAuth } from '@/lib/auth';
 import { assertPermission, hasAnyPermission, PermissionDeniedError } from '@/lib/rbac';
+import { db } from '@/server/db';
 
 // Mock dependencies
 vi.mock('@/lib/auth');
 vi.mock('@/lib/rbac');
+vi.mock('@/server/db', () => ({
+  db: {
+    organization: {
+      findUnique: vi.fn(),
+    },
+  },
+}));
 
 describe('withAuthAndRBAC', () => {
   const mockSession = {
@@ -33,6 +41,10 @@ describe('withAuthAndRBAC', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Organization existence check passes by default
+    vi.mocked(db.organization.findUnique).mockResolvedValue({
+      id: 'org-1',
+    } as Awaited<ReturnType<typeof db.organization.findUnique>>);
   });
 
   it('should allow access when user has required permission', async () => {
@@ -142,4 +154,3 @@ describe('withAuthAndRBAC', () => {
     expect(data.error).toBe('Custom error message');
   });
 });
-

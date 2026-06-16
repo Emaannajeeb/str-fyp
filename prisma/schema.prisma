@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // Enums
@@ -46,19 +47,6 @@ enum StreamStatus {
   CANCELLED
 }
 
-enum NotificationType {
-  APPROVAL_REQUEST
-  APPROVAL_RESPONSE
-  APPROVAL_REQUIRED
-  STREAM_CREATED
-  STREAM_UPDATED
-  STREAM_PAUSED
-  ANOMALY
-  CONTRACT_EXPIRING
-  BUDGET_WARNING
-  SYSTEM_ALERT
-  MONTHLY_REPORT_READY
-}
 
 // Models
 model Organization {
@@ -75,12 +63,9 @@ model Organization {
   approvals     Approval[]
   streams       Stream[]
   auditLogs     AuditLog[]
-  notifications Notification[]
   budgets       Budget[]
   departments   Department[]
-  notificationSettings OrganizationNotificationSettings?
   auditReports  AuditReport[]
-  invites       Invite[]
 
   @@index([slug])
   @@map("organizations")
@@ -99,11 +84,8 @@ model User {
   employees         Employee[]
   approvals         Approval[]
   auditLogs         AuditLog[]
-  notifications     Notification[]
   departmentMembers DepartmentMember[]
   auditReports      AuditReport[]
-  invitesCreated    Invite[]         @relation("InviteCreatedBy")
-  invitesUsed       Invite[]         @relation("InviteUsedBy")
 
   @@index([email])
   @@map("users")
@@ -138,7 +120,6 @@ model Role {
   // Relations
   rolePermissions RolePermission[]
   userRoles       UserRole[]
-  invites         Invite[]
 
   @@index([key])
   @@map("roles")
@@ -169,29 +150,6 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
-}
-
-model Invite {
-  id             String    @id @default(cuid())
-  code           String    @unique
-  organizationId String
-  roleId         String
-  createdById    String
-  expiresAt      DateTime
-  usedById       String?
-  usedAt         DateTime?
-  createdAt      DateTime  @default(now())
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  role         Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  createdBy    User         @relation("InviteCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
-  usedBy       User?        @relation("InviteUsedBy", fields: [usedById], references: [id], onDelete: SetNull)
-
-  @@index([code])
-  @@index([organizationId])
-  @@index([expiresAt])
-  @@map("invites")
 }
 
 model UserRole {
@@ -345,25 +303,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-model Notification {
-  id             String           @id @default(cuid())
-  organizationId String
-  userId         String
-  type           NotificationType
-  payload        Json
-  readAt         DateTime?
-  createdAt      DateTime         @default(now())
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId, userId])
-  @@index([userId, readAt])
-  @@index([type])
-  @@map("notifications")
-}
-
 model Budget {
   id               String   @id @default(cuid())
   organizationId   String
@@ -443,20 +382,6 @@ model WebhookEvent {
   @@index([eventType])
   @@index([processed])
   @@map("webhook_events")
-}
-
-model OrganizationNotificationSettings {
-  id             String   @id @default(cuid())
-  organizationId String   @unique
-  slackWebhookUrl String? // Slack incoming webhook URL
-  emailRecipients Json?   // Array of email addresses: ["finance@org.com", "audit@org.com"]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@map("organization_notification_settings")
 }
 
 model AuditReport {

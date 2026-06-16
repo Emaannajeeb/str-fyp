@@ -6,8 +6,8 @@
 
 import { db } from '../db';
 import { createStreamflowClient } from '../streamflow';
-import { sendNotification } from '../notify';
 import { env } from '@/lib/env';
+import { StreamStatus } from '@prisma/client';
 import './worker-health';
 
 /**
@@ -55,9 +55,7 @@ async function reconcileStream(streamId: string) {
 
     // Status mismatch
     if (streamflowDetails.status !== stream.status) {
-      anomalies.push(
-        `Status mismatch: local=${stream.status}, remote=${streamflowDetails.status}`
-      );
+      anomalies.push(`Status mismatch: local=${stream.status}, remote=${streamflowDetails.status}`);
     }
 
     // Check if stream was paused remotely
@@ -79,39 +77,16 @@ async function reconcileStream(streamId: string) {
     await db.stream.update({
       where: { id: streamId },
       data: {
-        status: streamflowDetails.status as any,
+        status: streamflowDetails.status as StreamStatus,
         lastSyncedAt: new Date(),
       },
     });
 
-    // Create notifications for anomalies
     if (anomalies.length > 0) {
-      for (const anomaly of anomalies) {
-        try {
-          await sendNotification({
-            organizationId: stream.employee.organizationId,
-            userId: stream.employee.userId || undefined,
-            type: 'ANOMALY',
-            payload: {
-              title: `Anomaly Detected: ${anomaly}`,
-              message: `Reconciliation detected an anomaly for stream ${stream.streamflowStreamId}: ${anomaly}`,
-              data: {
-                streamId: stream.id,
-                streamflowStreamId: stream.streamflowStreamId,
-                anomaly,
-                status: streamflowDetails.status,
-                availableAmount: streamflowDetails.availableAmount,
-                withdrawnAmount: streamflowDetails.withdrawnAmount,
-              },
-            },
-          });
-        } catch (error) {
-          console.error(`[Reconcile] Failed to send anomaly notification:`, error);
-          // Continue with other anomalies
-        }
-      }
-
-      console.log(`[Reconcile] Sent ${anomalies.length} anomaly notifications for stream ${streamId}`);
+      console.log(
+        `[Reconcile] Detected ${anomalies.length} anomalies for stream ${streamId}:`,
+        anomalies
+      );
     }
 
     console.log(`[Reconcile] Successfully reconciled stream ${streamId}`);
@@ -176,7 +151,9 @@ async function startWorker() {
     await runReconciliation();
   }, RECONCILE_INTERVAL_MS);
 
-  console.log(`[Reconcile] Worker started. Reconciliation interval: ${RECONCILE_INTERVAL_MS / 1000}s`);
+  console.log(
+    `[Reconcile] Worker started. Reconciliation interval: ${RECONCILE_INTERVAL_MS / 1000}s`
+  );
 
   // Graceful shutdown
   process.on('SIGTERM', () => {
@@ -201,4 +178,3 @@ if (require.main === module) {
 }
 
 export { startWorker, runReconciliation, reconcileStream };
-

@@ -99,9 +99,23 @@ export default function CreateStreamPage() {
       return;
     }
 
-    const startTime = Math.floor(new Date(startDate).getTime() / 1000);
-    const endTime = Math.floor(new Date(endDate).getTime() / 1000);
-    const cliffTime = cliffDate ? Math.floor(new Date(cliffDate).getTime() / 1000) : startTime;
+    // Streamflow rejects past/invalid timestamps (Custom error 112). Date inputs
+    // resolve to midnight, so the chosen start can be in the past; bump it into
+    // the near future and keep end > start and cliff within [start, end].
+    const nowSec = Math.floor(Date.now() / 1000);
+    const START_BUFFER_SEC = 120;
+    const rawStart = Math.floor(new Date(startDate).getTime() / 1000);
+    const startTime = Math.max(rawStart, nowSec + START_BUFFER_SEC);
+
+    const rawEnd = Math.floor(new Date(endDate).getTime() / 1000);
+    if (rawEnd <= startTime) {
+      showError('End date must be after the start date (and in the future).');
+      return;
+    }
+    const endTime = rawEnd;
+
+    const rawCliff = cliffDate ? Math.floor(new Date(cliffDate).getTime() / 1000) : startTime;
+    const cliffTime = Math.min(Math.max(rawCliff, startTime), endTime);
     const periodSec = PERIOD_SECONDS[selectedContract.period] || endTime - startTime;
     const totalAmount = computeTotalAmount(
       selectedContract.amountPerPeriod,

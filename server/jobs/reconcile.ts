@@ -3,7 +3,7 @@
  * Background job to sync stream statuses and accruals with Streamflow
  */
 
-import type { NotificationType, StreamStatus as PrismaStreamStatus } from '@prisma/client';
+import type { StreamStatus as PrismaStreamStatus } from '@prisma/client';
 import { Worker, Queue } from 'bullmq';
 import { env } from '@/lib/env';
 import { db } from '../db';
@@ -85,9 +85,7 @@ async function processReconciliation(job: { data: { streamId: string } }) {
 
     // Status mismatch
     if (streamflowDetails.status !== stream.status) {
-      anomalies.push(
-        `Status mismatch: local=${stream.status}, remote=${streamflowDetails.status}`
-      );
+      anomalies.push(`Status mismatch: local=${stream.status}, remote=${streamflowDetails.status}`);
     }
 
     // Check if stream was paused remotely
@@ -114,27 +112,11 @@ async function processReconciliation(job: { data: { streamId: string } }) {
       },
     });
 
-    // Create notifications for anomalies
-    if (anomalies.length > 0 && stream.employee.userId) {
-      for (const anomaly of anomalies) {
-        await db.notification.create({
-          data: {
-            organizationId: stream.employee.organizationId,
-            userId: stream.employee.userId,
-            type: getNotificationTypeForAnomaly(anomaly),
-            payload: {
-              streamId: stream.id,
-              streamflowStreamId: stream.streamflowStreamId,
-              anomaly,
-              status: streamflowDetails.status,
-              availableAmount: streamflowDetails.availableAmount,
-              withdrawnAmount: streamflowDetails.withdrawnAmount,
-            },
-          },
-        });
-      }
-
-      console.log(`[Reconcile] Created ${anomalies.length} notifications for stream ${streamId}`);
+    if (anomalies.length > 0) {
+      console.log(
+        `[Reconcile] Detected ${anomalies.length} anomalies for stream ${streamId}:`,
+        anomalies
+      );
     }
 
     console.log(`[Reconcile] Successfully reconciled stream ${streamId}`);
@@ -142,25 +124,6 @@ async function processReconciliation(job: { data: { streamId: string } }) {
     console.error(`[Reconcile] Error processing stream ${streamId}:`, error);
     throw error;
   }
-}
-
-/**
- * Get notification type based on anomaly
- */
-function getNotificationTypeForAnomaly(anomaly: string): NotificationType {
-  if (anomaly.includes('paused')) {
-    return 'STREAM_UPDATED';
-  }
-  if (anomaly.includes('cancelled')) {
-    return 'STREAM_UPDATED';
-  }
-  if (anomaly.includes('completed')) {
-    return 'STREAM_UPDATED';
-  }
-  if (anomaly.includes('insufficient funds')) {
-    return 'SYSTEM_ALERT';
-  }
-  return 'SYSTEM_ALERT';
 }
 
 /**
@@ -242,7 +205,9 @@ async function startWorker() {
     await queueReconciliation();
   }, RECONCILE_INTERVAL_MS);
 
-  console.log(`[Reconcile] Worker started. Reconciliation interval: ${RECONCILE_INTERVAL_MS / 1000}s`);
+  console.log(
+    `[Reconcile] Worker started. Reconciliation interval: ${RECONCILE_INTERVAL_MS / 1000}s`
+  );
 
   // Graceful shutdown
   process.on('SIGTERM', async () => {
@@ -269,4 +234,3 @@ if (require.main === module) {
 }
 
 export { startWorker, queueReconciliation, processReconciliation };
-

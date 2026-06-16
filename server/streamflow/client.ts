@@ -4,10 +4,9 @@
  */
 
 import {
-  GenericStreamClient,
+  SolanaStreamClient,
   getBN,
   getNumberFromBN,
-  IChain,
   type Stream,
   type ICreateStreamData,
   type ICreateResult,
@@ -16,16 +15,13 @@ import {
   type ITransferData,
   type ICancelData,
   type IGetOneData,
-  type IGetAllData,
   type ITransactionResult,
-  type SolanaStreamClientOptions,
+  type StreamClientOptions,
+  type ICreateStreamExt,
+  type IInteractStreamExt,
+  type ITopUpStreamExt,
   ICluster,
 } from '@streamflow/stream';
-import type {
-  ICreateStreamSolanaExt,
-  IInteractStreamSolanaExt,
-  ITopUpStreamSolanaExt,
-} from '@streamflow/stream/solana';
 import type {
   IStreamflowClient,
   StreamflowClientConfig,
@@ -35,7 +31,7 @@ import type {
   StreamStatus,
 } from './types';
 import type { ConnectedWallet } from '@/lib/wallet/client';
-import { createStreamflowWalletAdapter, getServerWalletAdapter } from './wallet-adapter';
+import { createStreamflowWalletAdapter } from './wallet-adapter';
 import { env, IS_DEVNET, SOLANA_EXPLORER_BASE } from '@/lib/env';
 
 /**
@@ -48,14 +44,14 @@ function normalizeStatus(stream: Stream): StreamStatus {
     // Check if all funds are withdrawn (completed) or cancelled
     const totalAmount = stream.depositedAmount;
     const withdrawnAmount = stream.withdrawnAmount;
-    
+
     if (totalAmount.eq(withdrawnAmount)) {
       return 'COMPLETED';
     } else {
       return 'CANCELLED';
     }
   }
-  
+
   // Stream is active if not closed
   return 'ACTIVE';
 }
@@ -79,20 +75,19 @@ function getClusterType(cluster: string): ICluster {
  * StreamflowClient - Real SDK implementation
  */
 export class StreamflowClient implements IStreamflowClient {
-  private client: GenericStreamClient<IChain.Solana>;
+  private client: SolanaStreamClient;
   private config: StreamflowClientConfig;
 
   constructor(config: StreamflowClientConfig) {
     this.config = config;
-    
+
     // Initialize the SDK client
-    const clientOptions: SolanaStreamClientOptions = {
+    const clientOptions: StreamClientOptions = {
       clusterUrl: config.clusterUrl,
       cluster: getClusterType(config.cluster),
-      chain: IChain.Solana,
     };
-    
-    this.client = new GenericStreamClient<IChain.Solana>(clientOptions);
+
+    this.client = new SolanaStreamClient(clientOptions);
   }
 
   /**
@@ -103,7 +98,7 @@ export class StreamflowClient implements IStreamflowClient {
     senderWallet: ConnectedWallet
   ): Promise<CreateStreamResponse> {
     const decimals = input.decimals ?? 9;
-    
+
     // Use the provided senderWallet (Phantom adapter) instead of server-side keypair
     // This ensures transactions are signed by the actual connected wallet
     const walletAdapter = createStreamflowWalletAdapter(senderWallet);
@@ -116,7 +111,9 @@ export class StreamflowClient implements IStreamflowClient {
       amount: getBN(Number(input.totalAmount), decimals),
       period: input.period ?? input.endTime - input.startTime,
       cliff: input.cliffTime ?? input.startTime,
-      cliffAmount: input.cliffAmount ? getBN(Number(input.cliffAmount), decimals) : getBN(0, decimals),
+      cliffAmount: input.cliffAmount
+        ? getBN(Number(input.cliffAmount), decimals)
+        : getBN(0, decimals),
       amountPerPeriod: input.amountPerPeriod
         ? getBN(Number(input.amountPerPeriod), decimals)
         : getBN(Number(input.totalAmount), decimals),
@@ -131,14 +128,14 @@ export class StreamflowClient implements IStreamflowClient {
       partner: input.partner ?? undefined,
     };
 
-      const solanaParams: ICreateStreamSolanaExt = {
-        sender: walletAdapter as any, // Type assertion to handle version mismatch
-        isNative: input.isNative ?? false,
-      };
+    const solanaParams: ICreateStreamExt = {
+      sender: walletAdapter as unknown as ICreateStreamExt['sender'],
+      isNative: input.isNative ?? false,
+    };
 
     try {
       const result: ICreateResult = await this.client.create(streamParams, solanaParams);
-      
+
       return {
         streamId: result.metadataId,
         onchainTx: result.txId,
@@ -157,7 +154,6 @@ export class StreamflowClient implements IStreamflowClient {
     inputs: CreateStreamInput[],
     senderWallet: ConnectedWallet
   ): Promise<CreateStreamResponse[]> {
-    const walletAdapter = createStreamflowWalletAdapter(senderWallet);
     const results: CreateStreamResponse[] = [];
 
     // Create streams sequentially to avoid rate limiting
@@ -186,11 +182,11 @@ export class StreamflowClient implements IStreamflowClient {
         id: streamId,
         amount: getBN(Number(amount), decimals),
       };
-      
-      const solanaParams: IInteractStreamSolanaExt = {
-        invoker: walletAdapter as any, // Type assertion to handle version mismatch
+
+      const solanaParams: IInteractStreamExt = {
+        invoker: walletAdapter as unknown as IInteractStreamExt['invoker'],
       };
-      
+
       const result: ITransactionResult = await this.client.withdraw(withdrawData, solanaParams);
 
       return result.txId;
@@ -203,11 +199,7 @@ export class StreamflowClient implements IStreamflowClient {
   /**
    * Top up a stream with additional funds
    */
-  async topup(
-    streamId: string,
-    amount: string,
-    senderWallet: ConnectedWallet
-  ): Promise<string> {
+  async topup(streamId: string, amount: string, senderWallet: ConnectedWallet): Promise<string> {
     // Use the provided senderWallet (Phantom adapter)
     const walletAdapter = createStreamflowWalletAdapter(senderWallet);
     const decimals = 9; // Default to SOL decimals
@@ -217,11 +209,11 @@ export class StreamflowClient implements IStreamflowClient {
         id: streamId,
         amount: getBN(Number(amount), decimals),
       };
-      
-      const solanaParams: ITopUpStreamSolanaExt = {
-        invoker: walletAdapter as any, // Type assertion to handle version mismatch
+
+      const solanaParams: ITopUpStreamExt = {
+        invoker: walletAdapter as unknown as ITopUpStreamExt['invoker'],
       };
-      
+
       const result: ITransactionResult = await this.client.topup(topupData, solanaParams);
 
       return result.txId;
@@ -234,11 +226,7 @@ export class StreamflowClient implements IStreamflowClient {
   /**
    * Transfer stream to a new recipient
    */
-  async transfer(
-    streamId: string,
-    newRecipient: string,
-    wallet: ConnectedWallet
-  ): Promise<string> {
+  async transfer(streamId: string, newRecipient: string, wallet: ConnectedWallet): Promise<string> {
     // Use the provided wallet (Phantom adapter)
     const walletAdapter = createStreamflowWalletAdapter(wallet);
 
@@ -247,11 +235,11 @@ export class StreamflowClient implements IStreamflowClient {
         id: streamId,
         newRecipient,
       };
-      
-      const solanaParams: IInteractStreamSolanaExt = {
-        invoker: walletAdapter as any, // Type assertion to handle version mismatch
+
+      const solanaParams: IInteractStreamExt = {
+        invoker: walletAdapter as unknown as IInteractStreamExt['invoker'],
       };
-      
+
       const result: ITransactionResult = await this.client.transfer(transferData, solanaParams);
 
       return result.txId;
@@ -272,11 +260,11 @@ export class StreamflowClient implements IStreamflowClient {
       const cancelData: ICancelData = {
         id: streamId,
       };
-      
-      const solanaParams: IInteractStreamSolanaExt = {
-        invoker: walletAdapter as any, // Type assertion to handle version mismatch
+
+      const solanaParams: IInteractStreamExt = {
+        invoker: walletAdapter as unknown as IInteractStreamExt['invoker'],
       };
-      
+
       const result: ITransactionResult = await this.client.cancel(cancelData, solanaParams);
 
       return result.txId;
@@ -294,7 +282,7 @@ export class StreamflowClient implements IStreamflowClient {
       const getOneData: IGetOneData = {
         id: streamId,
       };
-      
+
       const stream: Stream = await this.client.getOne(getOneData);
 
       return this.normalizeStreamDetails(stream, streamId);
@@ -311,9 +299,7 @@ export class StreamflowClient implements IStreamflowClient {
     try {
       // SDK get method fetches by sender or recipient, not by IDs
       // For multiple IDs, we need to call getOne for each
-      const streams = await Promise.all(
-        streamIds.map((id) => this.getOne(id).catch(() => null))
-      );
+      const streams = await Promise.all(streamIds.map((id) => this.getOne(id).catch(() => null)));
 
       return streams.filter((s): s is StreamDetails => s !== null);
     } catch (error) {
@@ -330,7 +316,7 @@ export class StreamflowClient implements IStreamflowClient {
     // Both have the same base properties
     const decimals = 9; // Default to SOL decimals, should be determined from token
     const status = normalizeStatus(stream);
-    
+
     // Calculate available amount (unlocked - withdrawn)
     const unlocked = stream.unlocked(Math.floor(Date.now() / 1000));
     const availableAmount = unlocked.sub(stream.withdrawnAmount);
@@ -354,14 +340,14 @@ export class StreamflowClient implements IStreamflowClient {
   /**
    * Pause stream (deprecated - not supported by SDK)
    */
-  async pauseStream(streamId: string): Promise<void> {
+  async pauseStream(_streamId: string): Promise<void> {
     throw new Error('Pause is not supported by Streamflow SDK. Use cancel instead.');
   }
 
   /**
    * Resume stream (deprecated - not supported by SDK)
    */
-  async resumeStream(streamId: string): Promise<void> {
+  async resumeStream(_streamId: string): Promise<void> {
     throw new Error('Resume is not supported by Streamflow SDK.');
   }
 }
@@ -381,7 +367,7 @@ export class MockStreamflowClient implements IStreamflowClient {
 
   async createStream(
     input: CreateStreamInput,
-    senderWallet: ConnectedWallet
+    _senderWallet: ConnectedWallet
   ): Promise<CreateStreamResponse> {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -421,39 +407,45 @@ export class MockStreamflowClient implements IStreamflowClient {
   }
 
   async withdraw(
-    streamId: string,
-    amount: string,
-    recipientWallet: ConnectedWallet
+    _streamId: string,
+    _amount: string,
+    _recipientWallet: ConnectedWallet
   ): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 100));
     return `mock_withdraw_tx_${Date.now()}`;
   }
 
-  async topup(
-    streamId: string,
-    amount: string,
-    senderWallet: ConnectedWallet
-  ): Promise<string> {
+  async topup(_streamId: string, _amount: string, _senderWallet: ConnectedWallet): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 100));
     return `mock_topup_tx_${Date.now()}`;
   }
 
   async transfer(
-    streamId: string,
-    newRecipient: string,
-    wallet: ConnectedWallet
+    _streamId: string,
+    _newRecipient: string,
+    _wallet: ConnectedWallet
   ): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 100));
     return `mock_transfer_tx_${Date.now()}`;
   }
 
-  async cancelStream(streamId: string, wallet: ConnectedWallet): Promise<string> {
+  async cancelStream(streamId: string, _wallet: ConnectedWallet): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const stream = this.streams.get(streamId);
     if (stream) {
+      if (stream.status === 'COMPLETED') {
+        throw new Error('Cannot cancel completed stream');
+      }
       stream.status = 'CANCELLED';
     }
     return `mock_cancel_tx_${Date.now()}`;
+  }
+
+  /**
+   * Alias for getOne, kept for API/test compatibility
+   */
+  async getStream(streamId: string): Promise<StreamDetails> {
+    return this.getOne(streamId);
   }
 
   async getOne(streamId: string): Promise<StreamDetails> {
@@ -496,23 +488,31 @@ export class MockStreamflowClient implements IStreamflowClient {
   }
 
   async get(streamIds: string[]): Promise<StreamDetails[]> {
-    return Promise.all(
-      streamIds.map((id) => this.getOne(id).catch(() => null))
-    ).then((streams) => streams.filter((s): s is StreamDetails => s !== null));
+    return Promise.all(streamIds.map((id) => this.getOne(id).catch(() => null))).then((streams) =>
+      streams.filter((s): s is StreamDetails => s !== null)
+    );
   }
 
   async pauseStream(streamId: string): Promise<void> {
     const stream = this.streams.get(streamId);
-    if (stream) {
-      stream.status = 'PAUSED';
+    if (!stream) {
+      throw new Error(`Stream ${streamId} not found`);
     }
+    if (stream.status !== 'ACTIVE') {
+      throw new Error(`Cannot pause stream with status ${stream.status}`);
+    }
+    stream.status = 'PAUSED';
   }
 
   async resumeStream(streamId: string): Promise<void> {
     const stream = this.streams.get(streamId);
-    if (stream) {
-      stream.status = 'ACTIVE';
+    if (!stream) {
+      throw new Error(`Stream ${streamId} not found`);
     }
+    if (stream.status !== 'PAUSED') {
+      throw new Error(`Cannot resume stream with status ${stream.status}`);
+    }
+    stream.status = 'ACTIVE';
   }
 
   clearStreams(): void {
@@ -529,13 +529,9 @@ export class MockStreamflowClient implements IStreamflowClient {
  * Factory function to create Streamflow client
  * Uses feature flag STREAMFLOW_ENABLED to determine which implementation to use
  */
-export function createStreamflowClient(
-  config: StreamflowClientConfig
-): IStreamflowClient {
+export function createStreamflowClient(config: StreamflowClientConfig): IStreamflowClient {
   const streamflowEnabled = env.STREAMFLOW_ENABLED === true;
-  const useMock =
-    !streamflowEnabled ||
-    process.env.USE_MOCK_STREAMFLOW === 'true';
+  const useMock = !streamflowEnabled || process.env.USE_MOCK_STREAMFLOW === 'true';
 
   if (useMock) {
     console.log(
